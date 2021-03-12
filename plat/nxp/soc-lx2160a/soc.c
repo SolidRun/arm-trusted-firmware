@@ -32,7 +32,7 @@
 #if defined(NXP_SFP_ENABLED)
 #include <sfp.h>
 #endif
-#ifdef OCRAM_ECC_EN
+#ifdef CONFIG_OCRAM_ECC_EN
 #include <ocram.h>
 #endif
 
