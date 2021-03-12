@@ -185,6 +185,9 @@ endif
 # enable dynamic memory mapping
 PLAT_XLAT_TABLES_DYNAMIC :=	1
 
+# OCRAM ECC Enabled
+OCRAM_ECC_EN		:=	yes
+
 ifneq (${NXP_SEC_ENDIANNESS},)
 $(eval $(call add_define,NXP_SEC_${NXP_SEC_ENDIANNESS}))
 endif
