@@ -86,6 +86,7 @@
 			enable-method = "psci";
 			clocks = <&scmi_dvfs 0>;
 			cpu-idle-states = <&CPU_SLEEP_0 &CLUSTER_SLEEP_0>;
+			capacity-dmips-mhz = <406>;
 		};
 
 		CPU1:cpu@100 {
@@ -95,6 +96,7 @@
 			enable-method = "psci";
 			clocks = <&scmi_dvfs 0>;
 			cpu-idle-states = <&CPU_SLEEP_0 &CLUSTER_SLEEP_0>;
+			capacity-dmips-mhz = <406>;
 		};
 
 		CPU2:cpu@200 {
@@ -104,6 +106,7 @@
 			enable-method = "psci";
 			clocks = <&scmi_dvfs 0>;
 			cpu-idle-states = <&CPU_SLEEP_0 &CLUSTER_SLEEP_0>;
+			capacity-dmips-mhz = <406>;
 		};
 
 		CPU3:cpu@300 {
@@ -113,6 +116,7 @@
 			enable-method = "psci";
 			clocks = <&scmi_dvfs 0>;
 			cpu-idle-states = <&CPU_SLEEP_0 &CLUSTER_SLEEP_0>;
+			capacity-dmips-mhz = <406>;
 		};
 
 		CPU4:cpu@400 {
@@ -122,6 +126,7 @@
 			enable-method = "psci";
 			clocks = <&scmi_dvfs 1>;
 			cpu-idle-states = <&CPU_SLEEP_0 &CLUSTER_SLEEP_0>;
+			capacity-dmips-mhz = <912>;
 		};
 
 		CPU5:cpu@500 {
@@ -131,6 +136,7 @@
 			enable-method = "psci";
 			clocks = <&scmi_dvfs 1>;
 			cpu-idle-states = <&CPU_SLEEP_0 &CLUSTER_SLEEP_0>;
+			capacity-dmips-mhz = <912>;
 		};
 
 		CPU6:cpu@600 {
@@ -140,6 +146,7 @@
 			enable-method = "psci";
 			clocks = <&scmi_dvfs 1>;
 			cpu-idle-states = <&CPU_SLEEP_0 &CLUSTER_SLEEP_0>;
+			capacity-dmips-mhz = <912>;
 		};
 
 		CPU7:cpu@700 {
@@ -149,6 +156,7 @@
 			enable-method = "psci";
 			clocks = <&scmi_dvfs 2>;
 			cpu-idle-states = <&CPU_SLEEP_0 &CLUSTER_SLEEP_0>;
+			capacity-dmips-mhz = <1024>;
 		};
 
 	};
