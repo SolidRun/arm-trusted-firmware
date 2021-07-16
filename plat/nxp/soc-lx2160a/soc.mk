@@ -69,6 +69,9 @@ $(eval $(call SET_NXP_MAKE_FLAG,IMG_LOADR_NEEDED,BL2))
  # Selecting PSCI & SIP_SVC support
 $(eval $(call SET_NXP_MAKE_FLAG,PSCI_NEEDED,BL31))
 $(eval $(call SET_NXP_MAKE_FLAG,SIPSVC_NEEDED,BL31))
+ifeq (${TRNG_SUPPORT}, 1)
+$(eval $(call SET_NXP_MAKE_FLAG,TRNG_NEEDED,BL31))
+endif
 
 
  # Selecting Boot Source for the TFA images.
@@ -122,6 +125,10 @@ ifeq (${SIPSVC_NEEDED}, yes)
 include ${PLAT_COMMON_PATH}/sip_svc/sipsvc.mk
 endif
 
+ifeq (${TRNG_NEEDED}, yes)
+include $(PLAT_COMMON_PATH)/trng/trng.mk
+endif
+
 ifeq (${DDR_FIP_IO_NEEDED}, yes)
 include ${PLAT_COMMON_PATH}/fip_handler/ddr_fip/ddr_fip_io.mk
 endif
@@ -148,6 +155,7 @@ BL31_SOURCES		+=	${PLAT_SOC_PATH}/$(ARCH)/${SOC}.S\
 				${WARM_RST_BL31_SOURCES}\
 				${PSCI_SOURCES}\
 				${SIPSVC_SOURCES}\
+				${TRNG_SOURCES}\
 				${PLAT_COMMON_PATH}/$(ARCH)/bl31_data.S
 
 PLAT_BL_COMMON_SOURCES	+=	${PLAT_COMMON_PATH}/$(ARCH)/ls_helpers.S\
