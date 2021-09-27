@@ -6,8 +6,8 @@
 
 #include <asm_macros.S>
 
-#include "soc_default_base_addr.h"
-#include "soc_default_helper_macros.h"
+#include <soc_default_base_addr.h>
+#include <soc_default_helper_macros.h>
 
 .global ocram_init
 
@@ -37,7 +37,7 @@ func ocram_init
 1:
 	/* for each location, read and write-back */
 	dc	ivac, x0
-	isb
+	dsb	sy
 	ldp	x4, x5, [x0]
 	ldp	x6, x7, [x0, #16]
 	ldp	x8, x9, [x0, #32]
