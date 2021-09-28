@@ -1171,6 +1171,8 @@ ifeq (${BL2_AT_EL3}, 0)
 FIP_BL2_ARGS := tb-fw
 endif
 
+BL2_SOURCES := $(sort ${BL2_SOURCES})
+
 $(if ${BL2}, $(eval $(call TOOL_ADD_IMG,bl2,--${FIP_BL2_ARGS})),\
 	$(eval $(call MAKE_BL,bl2,${FIP_BL2_ARGS})))
 endif
