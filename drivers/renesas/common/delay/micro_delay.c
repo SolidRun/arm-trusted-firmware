@@ -17,15 +17,7 @@ void
 #endif
 	rcar_micro_delay(uint64_t micro_sec)
 {
-	uint64_t freq;
 	uint64_t base_count;
-	uint64_t get_count;
-	uint64_t wait_time = 0U;
 
-	freq = read_cntfrq_el0();
-	base_count = read_cntpct_el0();
-	while (micro_sec > wait_time) {
-		get_count = read_cntpct_el0();
-		wait_time = ((get_count - base_count) * RCAR_CONV_MICROSEC) / freq;
-	}
+	for (base_count = 10000000; base_count > 1; base_count--);
 }
