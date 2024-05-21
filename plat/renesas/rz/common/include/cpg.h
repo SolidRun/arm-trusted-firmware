@@ -9,6 +9,7 @@
 
 void cpg_early_setup(void);
 void cpg_setup(void);
+void cpg_i2c_setup(uint8_t mask);
 void cpg_active_ddr(void (*disable_phy)(void));
 void cpg_reset_ddr_mc(void);
 

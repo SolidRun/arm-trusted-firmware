@@ -934,3 +934,22 @@ void cpg_setup(void)
 	cpg_div_sel_dynamic_setup();
 	cpg_wdtrst_sel_setup();
 }
+
+void cpg_i2c_setup(uint8_t mask)
+{
+	CPG_SETUP_DATA clkon = {
+		.reg = (uintptr_t)CPG_CLKON_I2C,
+		.mon = (uintptr_t)CPG_CLKMON_I2C,
+		.val = 0x000f0000 | (mask & 0xF),
+		.type = CPG_T_CLK,
+	};
+	CPG_SETUP_DATA clkrst = {
+		(uintptr_t)CPG_RST_I2C,
+		(uintptr_t)CPG_RSTMON_I2C,
+		.val = 0x000f0000 | (mask & 0xF),
+		CPG_T_RST,
+	};
+
+	cpg_ctrl_clkrst(&clkon, 1);
+	cpg_ctrl_clkrst(&clkrst, 1);
+}

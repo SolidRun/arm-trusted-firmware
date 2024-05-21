@@ -262,3 +262,18 @@ void pfc_setup(void)
 	pfc_qspi_setup();
 	pfc_sd_setup();
 }
+
+void pfc_i2c01_setup(uint8_t i2c0, uint8_t i2c1)
+{
+	/* i2c0/1 only need IEN */
+	uint32_t val = mmio_read_32(PFC_IEN0E);
+	if (i2c0)
+		val |= (1 << 0) | (1 << 8);
+	else
+		val &= ~((1 << 0) | (1 << 8));
+	if (i2c1)
+		val |= (1 << 16) | (1 << 24);
+	else
+		val &= ~((1 << 16) | (1 << 24));
+	mmio_write_32(PFC_IEN0E, val);
+}

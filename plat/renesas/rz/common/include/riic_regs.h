@@ -7,24 +7,23 @@
 #ifndef RIIC_REGS_H
 #define RIIC_REGS_H
 
-#define RIIC_BASE		(RZ_SOC_I2C_BASE)
+extern uintptr_t RIIC_BASE;
 
-#define RIIC_ICCR1		((uintptr_t)RIIC_BASE + 0x00)
-#define RIIC_ICCR2		((uintptr_t)RIIC_BASE + 0x01)
-#define RIIC_ICMR1		((uintptr_t)RIIC_BASE + 0x02)
-#define RIIC_ICMR2		((uintptr_t)RIIC_BASE + 0x03)
-#define RIIC_ICMR3		((uintptr_t)RIIC_BASE + 0x04)
-#define RIIC_ICFER		((uintptr_t)RIIC_BASE + 0x05)
-#define RIIC_ICSER		((uintptr_t)RIIC_BASE + 0x06)
-#define RIIC_ICIER		((uintptr_t)RIIC_BASE + 0x07)
-#define RIIC_ICSR1		((uintptr_t)RIIC_BASE + 0x08)
-#define RIIC_ICSR2		((uintptr_t)RIIC_BASE + 0x09)
-#define RIIC_ICSAR0		((uintptr_t)RIIC_BASE + 0x0A)
-#define RIIC_ICBRL		((uintptr_t)RIIC_BASE + 0x10)
-#define RIIC_ICBRH		((uintptr_t)RIIC_BASE + 0x11)
-#define RIIC_ICDRT		((uintptr_t)RIIC_BASE + 0x12)
-#define RIIC_ICDRR		((uintptr_t)RIIC_BASE + 0x13)
-
+#define RIIC_ICCR1		(RIIC_BASE + 0x00)
+#define RIIC_ICCR2		(RIIC_BASE + 0x04)
+#define RIIC_ICMR1		(RIIC_BASE + 0x08)
+#define RIIC_ICMR2		(RIIC_BASE + 0x0C)
+#define RIIC_ICMR3		(RIIC_BASE + 0x10)
+#define RIIC_ICFER		(RIIC_BASE + 0x14)
+#define RIIC_ICSER		(RIIC_BASE + 0x18)
+#define RIIC_ICIER		(RIIC_BASE + 0x1C)
+#define RIIC_ICSR1		(RIIC_BASE + 0x20)
+#define RIIC_ICSR2		(RIIC_BASE + 0x24)
+#define RIIC_ICSAR0		(RIIC_BASE + 0x28)
+#define RIIC_ICBRL		(RIIC_BASE + 0x34)
+#define RIIC_ICBRH		(RIIC_BASE + 0x38)
+#define RIIC_ICDRT		(RIIC_BASE + 0x3C)
+#define RIIC_ICDRR		(RIIC_BASE + 0x40)
 
 /* ICCR1 */
 #define ICCR1_ICE		(0x80)

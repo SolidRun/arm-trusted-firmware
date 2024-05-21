@@ -101,4 +101,11 @@
 #define RZ_SOC_OTP_BASE_DEVID		(RZG2L_OTP_BASE + 0x1178)
 #define RZ_SOC_OTP_BASE_CHIPID		(RZG2L_OTP_BASE + 0x1140)
 
+/* I2C controller addresses */
+
+#define RZG2L_RIIC0_BASE            (0x10058000)
+#define RZG2L_RIIC1_BASE            (0x10058400)
+#define RZG2L_RIIC2_BASE            (0x10058800)
+#define RZG2L_RIIC3_BASE            (0x10058C00)
+
 #endif /* __RZ_SOC_DEF_H__ */

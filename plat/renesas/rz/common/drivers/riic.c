@@ -8,12 +8,13 @@
 #include <stddef.h>
 #include <assert.h>
 #include <lib/mmio.h>
-#include <rz_soc_def.h>
 #include <riic.h>
 #include <riic_regs.h>
 
 #define RIIC_SPEED_RATE			(100000)
 #define RIIC_WAIT_COUNT_MAX		(40000000U)
+
+uintptr_t RIIC_BASE;
 
 static void riic_clear_bit(uint8_t val, uintptr_t offset)
 {
@@ -262,9 +263,11 @@ static int riic_send_dev_addr(uint8_t addr, int read)
 	return riic_i2c_raw_write(&buf, 1);
 }
 
-void riic_setup(void)
+void riic_setup(uintptr_t i2c_base)
 {
 	int ret;
+
+	RIIC_BASE = i2c_base;
 
 	ret = riic_init_setting(RIIC_SPEED_RATE);
 	if (ret)
@@ -352,6 +355,71 @@ int32_t riic_read(uint8_t slave, uint8_t addr, uint8_t *data)
 
 force_exit:
 	riic_send_stop_cond();
+
+	return ret;
+}
+
+static inline char _digit2hex(const uint8_t digit)
+{
+	if (digit < 0xa)
+		return '0' + digit;
+	else
+		return 'a' - 0xa + digit;
+}
+
+int riic_dump(uint8_t slave, uint8_t addr, uint8_t *data, int length)
+{
+	int ret;
+	int i, j, k;
+	uint8_t row[16];
+
+	for (i = 0; i < length; i++) {
+		ret = riic_read(slave, addr + i, &data[i]);
+		if (ret)
+			return ret;
+	}
+
+	for (i = 0; i < length; i++) {
+		j = i % 16;
+		row[j] = data[i];
+
+		if (j == 15) {
+			for (k = 0; k < sizeof(row); k++) {
+				putchar(_digit2hex((row[k] & 0xF0) >> 8));
+				putchar(_digit2hex((row[k] & 0x0F) >> 0));
+				putchar(' ');
+			}
+			for (k = 0; k < sizeof(row); k++)
+				if (row[k] >= 32 && row[k] < 127)
+					putchar(row[k]);
+				else
+					putchar('.');
+			putchar('\n');
+		}
+	}
+
+	if (length % 16) {
+		j = length % 16;
+
+		for (k = 0; k < j; k++) {
+			putchar(_digit2hex((row[k] & 0xF0) >> 8));
+			putchar(_digit2hex((row[k] & 0x0F) >> 0));
+			putchar(' ');
+		}
+		for (k = k; k < 16; k++) {
+			putchar(' ');
+			putchar(' ');
+			putchar(' ');
+		}
+		for (k = 0; k < j; k++) {
+			if (row[k] >= 32 && row[k] < 127)
+				putchar(row[k]);
+			else
+				putchar('.');
+		}
+		for (k = k; k < 16; k++)
+			putchar(' ');
+	}
 
 	return ret;
 }
