@@ -274,7 +274,7 @@ void riic_setup(uintptr_t i2c_base)
 		panic();
 }
 
-int32_t riic_write(uint8_t slave, uint8_t addr, uint8_t data)
+static inline int32_t riic_write_one(uint8_t slave, uint8_t addr, uint8_t data)
 {
 	int ret;
 
@@ -308,7 +308,21 @@ force_exit:
 	return ret;
 }
 
-int32_t riic_read(uint8_t slave, uint8_t addr, uint8_t *data)
+int32_t riic_write(uint8_t slave, uint8_t addr, uint8_t *data, int length)
+{
+	int i;
+	int ret = 0;
+
+	for (i = 0; i < length; i++) {
+		ret = riic_write_one(slave, addr + i, data[i]);
+		if (ret)
+			return ret;
+	}
+
+	return ret;
+}
+
+static inline int32_t riic_read_one(uint8_t slave, uint8_t addr, uint8_t *data)
 {
 	int ret;
 
@@ -359,6 +373,20 @@ force_exit:
 	return ret;
 }
 
+int32_t riic_read(uint8_t slave, uint8_t addr, uint8_t *data, int length)
+{
+	int i;
+	int ret = 0;
+
+	for (i = 0; i < length; i++) {
+		ret = riic_read_one(slave, addr + i, &data[i]);
+		if (ret)
+			return ret;
+	}
+
+	return ret;
+}
+
 static inline char _digit2hex(const uint8_t digit)
 {
 	if (digit < 0xa)
@@ -373,11 +401,9 @@ int riic_dump(uint8_t slave, uint8_t addr, uint8_t *data, int length)
 	int i, j, k;
 	uint8_t row[16];
 
-	for (i = 0; i < length; i++) {
-		ret = riic_read(slave, addr + i, &data[i]);
-		if (ret)
-			return ret;
-	}
+	ret = riic_read(slave, addr, data, length);
+	if (ret)
+		return ret;
 
 	for (i = 0; i < length; i++) {
 		j = i % 16;
