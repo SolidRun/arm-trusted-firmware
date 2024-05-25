@@ -69,12 +69,6 @@ char data_synd[] = {
 #endif
 #endif
 
-#if defined(DDR_PARAM_SETUP) && DDR_PARAM_SETUP
-void __attribute__((weak)) ddr_param_setup(void) {}
-#else
-static inline void ddr_param_setup(void) {}
-#endif
-
 // main
 void ddr_setup(void)
 {
@@ -84,7 +78,9 @@ void ddr_setup(void)
 	uint32_t	tmp;
 	int i;
 
+#if defined(DDR_PARAM_SETUP) && DDR_PARAM_SETUP
 	ddr_param_setup();
+#endif
 
 	INFO("BL2: setup DDR (Rev. %s)\n", ddr_an_version);
 	// Step2 - Step11
