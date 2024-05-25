@@ -18,3 +18,11 @@ $(eval $(call add_define,DDR_PARAM_SETUP))
 
 DDR_PLL4    := 1600
 $(eval $(call add_define,DDR_PLL4))
+
+BL33_ARG1_FDTBLOB := 0
+$(eval $(call add_define,BL33_ARG1_FDTBLOB))
+include lib/libfdt/libfdt.mk
+
+BL33_ARG23_DRAM_INFO := 0
+$(eval $(call add_define,BL33_ARG23_DRAM_INFO))
+include lib/libfdt/libfdt.mk

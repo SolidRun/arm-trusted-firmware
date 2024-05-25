@@ -9,11 +9,15 @@
 
 #include <cpg.h>
 #include <common/debug.h>
+#include <common/desc_image_load.h>
 #include <ddr_internal.h>
 #include <ddr_mc_regs.h>
+#include <libfdt.h>
 #include <pfc.h>
+#include <plat/common/common_def.h>
 #include <riic.h>
 #include <riic_tlv.h>
+#include <rz_private.h>
 
 /*
  * These structures are directly linked within ddr driver,
@@ -91,6 +95,10 @@ static void apply_T1bc(void)
 	memcpy(swizzle_phy_tbl, T1bc_swizzle_phy_tbl, sizeof(uint32_t) * SIZZLE_PHY_NUM * 2);
 }
 
+#if (defined(BL33_ARG1_FDTBLOB) && BL33_ARG1_FDTBLOB) || (defined(BL33_ARG23_DRAM_INFO) && BL33_ARG23_DRAM_INFO)
+static uint64_t dram_size;
+#endif
+
 void ddr_param_setup(void)
 {
 	bool status;
@@ -134,13 +142,65 @@ void ddr_param_setup(void)
 
 mem_default:
 mem_1g:
+#if (defined(BL33_ARG1_FDTBLOB) && BL33_ARG1_FDTBLOB) || (defined(BL33_ARG23_DRAM_INFO) && BL33_ARG23_DRAM_INFO)
+	dram_size = SZ_1G;
+#endif
 	apply_T1bc();
 	apply_C_011_D4_02_2();
 	NOTICE("memory settings: %s %s\n", "T1bc", "C-011_D4-02-2");
 	return;
 mem_2g:
+#if (defined(BL33_ARG1_FDTBLOB) && BL33_ARG1_FDTBLOB) || (defined(BL33_ARG23_DRAM_INFO) && BL33_ARG23_DRAM_INFO)
+	dram_size = SZ_2G;
+#endif
 	apply_T1bc();
 	apply_C_011_D4_01_1();
 	NOTICE("memory settings: %s %s\n", "T1bc", "C-011_D4-01-1");
 	return;
 }
+
+#if defined(BL33_ARG1_FDTBLOB) && BL33_ARG1_FDTBLOB
+int bl2_fdtblob_setup_dram(void *fdt)
+{
+	int node;
+	int ret = 0;
+
+	ret = fdt_setprop_string(fdt, 0, "compatible", "solidrun,rzg2l-sr-som");
+	if (ret)
+		NOTICE("setprop failed: %d\n", ret);
+
+
+	node = ret = fdt_add_subnode(fdt, 0, "memory@48000000");
+	if (ret < 0)
+		return ret;
+
+	ret = fdt_setprop_string(fdt, node, "device_type", "memory");
+	if (ret < 0)
+		return ret;
+
+	/* dram memory starts at 1G, but first 128MB are reserved */
+	ret = fdt_setprop_u64(fdt, node, "reg", SZ_1G + SZ_128M);
+	if (ret < 0)
+		return ret;
+
+	/* expose only non-reserved size */
+	ret = fdt_appendprop_u64(fdt, node, "reg", dram_size - SZ_128M);
+	if (ret < 0)
+		return ret;
+
+	return ret;
+}
+#endif
+
+#if defined(BL33_ARG23_DRAM_INFO) && BL33_ARG23_DRAM_INFO
+int bl3_params_setup(unsigned int image_id, bl2_to_bl31_params_mem_t *params)
+{
+	if (image_id == BL33_IMAGE_ID) {
+		/* expose only non-reserved area */
+		params->bl33_ep_info.args.arg2 = SZ_1G + SZ_128M;
+		params->bl33_ep_info.args.arg3 = dram_size - SZ_128M;
+	}
+
+	return 0;
+}
+#endif
