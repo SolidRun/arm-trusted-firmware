@@ -7,6 +7,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <assert.h>
+#include <drivers/delay_timer.h>
 #include <lib/mmio.h>
 #include <riic.h>
 #include <riic_regs.h>
@@ -272,6 +273,41 @@ void riic_setup(uintptr_t i2c_base)
 	ret = riic_init_setting(RIIC_SPEED_RATE);
 	if (ret)
 		panic();
+}
+
+/*
+ * Flush the i2c bus to ensure all slave devices release their locks on SDA.
+ * This is a work-around for i2c slave devices locking SDA,
+ * when the system has been reset during a transaction.
+ */
+void riic_flush(uintptr_t i2c_base)
+{
+	uint8_t iccr1;
+
+	RIIC_BASE = i2c_base;
+	iccr1 = mmio_read_8(RIIC_ICCR1);
+
+	/* assert sda */
+	iccr1 &= ~(ICCR1_SOWP | ICCR1_SDAO);
+	mmio_write_8(RIIC_ICCR1, iccr1);
+
+	/* send 9 clock cycles at 50kHz */
+	for(uint8_t i = 0; i < 9; i++) {
+		/* assert clock */
+		iccr1 &= ~(ICCR1_SCLO);
+		mmio_write_8(RIIC_ICCR1, iccr1);
+		udelay(10);
+
+		/* deassert clock */
+		iccr1 |= ICCR1_SCLO;
+		mmio_write_8(RIIC_ICCR1, iccr1);
+		udelay(10);
+	}
+
+	/* deassert sda to create stop condition */
+	iccr1 |= ICCR1_SDAO;
+	mmio_write_8(RIIC_ICCR1, iccr1);
+	udelay(10);
 }
 
 static inline int32_t riic_write_one(uint8_t slave, uint8_t addr, uint8_t data)
