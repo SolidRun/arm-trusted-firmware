@@ -103,6 +103,7 @@ void ddr_param_setup(void)
 	cpg_i2c_setup((1 << 1));
 	pfc_i2c01_setup(0, 1);
 	riic_setup(RZG2L_RIIC1_BASE);
+	riic_flush(RZG2L_RIIC1_BASE);
 	status = riic_tlv_read_eeprom(0x50, 0x00);
 	pfc_i2c01_setup(0, 0);
 	cpg_i2c_setup(0);
