@@ -20,7 +20,7 @@
 #include <rz_private.h>
 
 /*
- * Import T1bc C-011_D4-02-2 as baseline configurations.
+ * Import T1bc C-011_D4-01-1 as baseline configurations.
  * Override const keyword to allow runtime patching ...
  */
 #define const
@@ -57,7 +57,11 @@ static inline void apply_C_011_D4_01_1(void)
 	memcpy(ddr_an_version, C_011_D4_01_1_ddr_an_version, strlen(C_011_D4_01_1_ddr_an_version) + 1);
 }
 
-static const uint32_t C_011_D4_01_1_mc_init_tbl[][2] = {
+/*
+ * patch for C-011_D4-02-2 (based on C-011_D4-01-1)
+ * diff -au ./plat/renesas/rz/soc/g2l/drivers/ddr/param_mc_C-011_D4-01-1.c ./plat/renesas/rz/soc/g2l/drivers/ddr/param_mc_C-011_D4-02-2.c
+ */
+static const uint32_t C_011_D4_02_2_mc_init_tbl[][2] = {
 	{ DENALI_CTL_14, 0x09160255 },
 	{ DENALI_CTL_17, 0x00002706 },
 	{ DENALI_CTL_19, 0x06001C0B },
@@ -81,7 +85,7 @@ const char C_011_D4_02_2_ddr_an_version[] = "v3.0.1";
 
 static inline void apply_C_011_D4_02_2(void)
 {
-	apply_regtable_patch(mc_init_tbl, C_011_D4_01_1_mc_init_tbl, ARRAY_SIZE(C_011_D4_01_1_mc_init_tbl));
+	apply_regtable_patch(mc_init_tbl, C_011_D4_02_2_mc_init_tbl, ARRAY_SIZE(C_011_D4_02_2_mc_init_tbl));
 	memcpy(ddr_an_version, C_011_D4_02_2_ddr_an_version, strlen(C_011_D4_02_2_ddr_an_version) + 1);
 }
 
