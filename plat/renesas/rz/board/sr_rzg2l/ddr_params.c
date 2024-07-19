@@ -103,7 +103,7 @@ void ddr_param_setup(void)
 	char sku[32] = {0};
 	uint16_t sku_len;
 
-	/* Read SoM ID EEPROM */
+	/* Read SoM ID EEPROM on i2c1 at 0x50 */
 	cpg_i2c_setup((1 << 1));
 	pfc_i2c01_setup(0, 1);
 	riic_setup(RZG2L_RIIC1_BASE);
@@ -112,7 +112,7 @@ void ddr_param_setup(void)
 	pfc_i2c01_setup(0, 0);
 	cpg_i2c_setup(0);
 	if (!status) {
-		ERROR("Failed to read SoM EEPROM @ 0x50!\n");
+		ERROR("Failed to read SoM EEPROM on i2c1 @ 0x50!\n");
 		goto mem_default;
 	}
 
