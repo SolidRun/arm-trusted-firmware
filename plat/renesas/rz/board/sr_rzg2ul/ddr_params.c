@@ -119,9 +119,9 @@ void ddr_param_setup(void)
 	sku_len = riic_tlv_find(TLV_CODE_PART_NUMBER, (uint8_t *)sku, NULL);
 
 	/* choose memory config by size digits [13:11] */
-	if (!strcmp(sku, "512"))
+	if (!strncmp(&sku[11], "512", 3))
 		goto mem_512m;
-	if (!strcmp(sku, "01G"))
+	if (!strncmp(&sku[11], "01G", 3))
 		goto mem_1g;
 
 	ERROR("EEPROM specifies unsupported memory size: '%c%c%c'\n", sku[11], sku[12], sku[13]);
