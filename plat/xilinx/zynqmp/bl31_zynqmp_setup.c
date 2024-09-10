@@ -195,10 +195,6 @@ void bl31_plat_runtime_setup(void)
 #endif
 
 	custom_runtime_setup();
-
-#if defined(CONSOLE_RUNTIME)
-	console_runtime_init();
-#endif
 }
 
 /*
