@@ -26,6 +26,8 @@
 #include <rz_private.h>
 #include <drivers/delay_timer.h>
 
+extern void rzg_wdt_start(uint32_t timeout_sec);
+
 #if defined(BL33_ARG1_FDTBLOB) && BL33_ARG1_FDTBLOB
 #include <libfdt.h>
 
@@ -197,6 +199,7 @@ void bl2_platform_setup(void)
 {
 	/* Setup TZC-400, Access Control */
 	plat_security_setup();
+	rzg_wdt_start(5);
 
 #if !DEBUG_RZG2L_FPGA
 	/* initialize DDR */
