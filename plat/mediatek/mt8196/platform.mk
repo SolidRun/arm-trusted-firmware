@@ -41,6 +41,8 @@ MODULES-$(CONFIG_MTK_CPU_PM_SUPPORT) += $(MTK_PLAT)/drivers/cpu_pm
 MODULES-$(CONFIG_MTK_PMIC) += $(MTK_PLAT)/drivers/pmic
 MODULES-$(CONFIG_MTK_SPMI) += $(MTK_PLAT)/drivers/spmi
 
+MODULES-$(CONFIG_MTK_MTCMOS) += $(MTK_PLAT)/drivers/mtcmos
+
 ifneq ($(MTKLIB_PATH),)
 LDFLAGS += -L $(dir $(MTKLIB_PATH))
 LDLIBS += -l$(patsubst lib%.a,%,$(notdir $(MTKLIB_PATH)))
