@@ -21,6 +21,7 @@
  */
 #pragma weak bl2_el3_plat_prepare_exit
 #pragma weak plat_error_handler
+#pragma weak plat_system_reset
 #pragma weak bl2_plat_preload_setup
 #pragma weak bl2_plat_handle_pre_image_load
 #pragma weak bl2_plat_handle_post_image_load
@@ -50,6 +51,12 @@ void bl2_el3_plat_prepare_exit(void)
 }
 
 void __dead2 plat_error_handler(int err)
+{
+	while (1)
+		wfi();
+}
+
+void __dead2 plat_system_reset(void)
 {
 	while (1)
 		wfi();
