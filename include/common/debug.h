@@ -102,10 +102,20 @@ void backtrace(const char *cookie);
 void __dead2 el3_panic(void);
 void __dead2 elx_panic(void);
 
+#ifdef CONFIG_PANIC_TIMEOUT
+#define panic_reboot()			\
+	do {				\
+		plat_system_reset();	\
+	} while (false)
+#else
+#define panic_reboot()
+#endif
+
 #define panic()				\
 	do {				\
 		backtrace(__func__);	\
 		console_flush();	\
+		panic_reboot();		\
 		el3_panic();		\
 	} while (false)
 

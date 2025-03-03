@@ -93,6 +93,10 @@ BL2_SOURCES		+=	lib/cpus/aarch64/cortex_a55.S						\
 					${SPI_MULTI_SOURCE}									\
 					${SD_SOURCES}
 
+ifdef CONFIG_PANIC_TIMEOUT
+BL2_SOURCES	+=	plat/renesas/rz/common/drivers/wdt.c
+endif
+
 # Include GICv3 driver files
 GICV3_IMPL		:= GIC600
 include drivers/arm/gic/v3/gicv3.mk

@@ -4,6 +4,11 @@
 # SPDX-License-Identifier: BSD-3-Clause
 #
 
+# Timeout value (in seconds) until a reboot occurs after panic().
+ifdef CONFIG_PANIC_TIMEOUT
+$(eval $(call add_define,CONFIG_PANIC_TIMEOUT))
+endif
+
 include plat/renesas/rz/common/rz_common.mk
 include plat/renesas/rz/board/${BOARD}/rz_board.mk
 

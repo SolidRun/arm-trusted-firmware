@@ -26,6 +26,8 @@
 #include <rz_private.h>
 #include <drivers/delay_timer.h>
 
+#include "wdt.h"
+
 #if defined(BL33_ARG1_FDTBLOB) && BL33_ARG1_FDTBLOB
 #include <libfdt.h>
 
@@ -210,3 +212,15 @@ void bl2_platform_setup(void)
 		ERROR("FDT Blob setup failed, u-boot memory reporting will be inaccurate.\n");
 #endif
 }
+
+#ifdef CONFIG_PANIC_TIMEOUT
+void __dead2 plat_system_reset(void)
+{
+	/* Setup the watchdog to reset the system after a short delay. */
+	rzg_wdt_start(CONFIG_PANIC_TIMEOUT);
+
+	/* Loop to not return: */
+	for (;;)
+		wfi();
+}
+#endif /* CONFIG_PANIC_TIMEOUT */
