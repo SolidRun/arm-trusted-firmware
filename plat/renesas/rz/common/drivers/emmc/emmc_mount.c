@@ -13,6 +13,8 @@
 #include "emmc_registers.h"
 #include "emmc_std.h"
 
+#define MMC_OP_COND_PERIOD_US	(4 * 1000) /* 4ms */
+
 static EMMC_ERROR_CODE emmc_clock_ctrl(uint8_t mode);
 static EMMC_ERROR_CODE emmc_card_init(void);
 static EMMC_ERROR_CODE emmc_high_speed(void);
@@ -83,7 +85,7 @@ static EMMC_ERROR_CODE emmc_card_init(void)
 		if ((mmc_drv_obj.r3_ocr & EMMC_OCR_STATUS_BIT) != 0) {
 			break;	/* card is ready. exit loop */
 		}
-		udelay(1000U);	/* wait 1ms */
+		udelay(MMC_OP_COND_PERIOD_US);	/* wait before next try */
 	}
 
 	if (retry == 0) {
