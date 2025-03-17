@@ -89,7 +89,6 @@ BL2_SOURCES		+=	lib/cpus/aarch64/cortex_a55.S						\
 					plat/renesas/rz/common/drivers/syc.c				\
 					plat/renesas/rz/common/drivers/pfc.c				\
 					plat/renesas/rz/common/drivers/cpg.c				\
-					plat/renesas/rz/common/drivers/wdt.c				\
 					${DDR_SOURCES}										\
 					${SPI_MULTI_SOURCE}									\
 					${SD_SOURCES}
