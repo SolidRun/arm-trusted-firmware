@@ -10,6 +10,9 @@ This includes right now:
 -  rk3328: Quad-Core Cortex-A53
 -  rk3368: Octa-Core Cortex-A53
 -  rk3399: Hexa-Core Cortex-A53/A72
+-  rk3566/rk3568: Quad-Core Cortex-A55
+-  rk3576: Octa-Core Cortex-A53/A72
+-  rk3588: Octa-Core Cortex-A55/A76
 
 
 Boot Sequence
@@ -35,7 +38,7 @@ these images need to get build from the TF-A repository.
 
 For AARCH64 architectures the build command looks like
 
-    make CROSS_COMPILE=aarch64-linux-gnu- PLAT=rk3399 bl32
+    make CROSS_COMPILE=aarch64-linux-gnu- PLAT=rk3399 bl31
 
 while AARCH32 needs a slightly different command
 

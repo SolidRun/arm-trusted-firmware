@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2015-2020, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2015-2023, Arm Limited and Contributors. All rights reserved.
+ * Portions copyright (c) 2021-2022, ProvenRun S.A.S. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -219,9 +220,9 @@ unsigned int gicv2_get_pending_interrupt_id(void)
 	 * Find out which non-secure interrupt it is under the assumption that
 	 * the GICC_CTLR.AckCtl bit is 0.
 	 */
-	if (id == PENDING_G1_INTID)
+	if (id == PENDING_G1_INTID) {
 		id = gicc_read_ahppir(driver_data->gicc_base) & INT_ID_MASK;
-
+	}
 	return id;
 }
 
@@ -251,7 +252,7 @@ void gicv2_end_of_interrupt(unsigned int id)
 	 * Ensure the write to peripheral registers are *complete* before the write
 	 * to GIC_EOIR.
 	 *
-	 * Note: The completion gurantee depends on various factors of system design
+	 * Note: The completion guarantee depends on various factors of system design
 	 * and the barrier is the best core can do by which execution of further
 	 * instructions waits till the barrier is alive.
 	 */
@@ -300,9 +301,9 @@ void gicv2_set_pe_target_mask(unsigned int proc_num)
 	assert(proc_num < driver_data->target_masks_num);
 
 	/* Return if the target mask is already populated */
-	if (driver_data->target_masks[proc_num] != 0U)
+	if (driver_data->target_masks[proc_num] != 0U) {
 		return;
-
+	}
 	/*
 	 * Update target register corresponding to this CPU and flush for it to
 	 * be visible to other CPUs.
@@ -389,7 +390,7 @@ void gicv2_set_interrupt_priority(unsigned int id, unsigned int priority)
  * This function assigns group for the interrupt identified by id. The group can
  * be any of GICV2_INTR_GROUP*
  ******************************************************************************/
-void gicv2_set_interrupt_type(unsigned int id, unsigned int type)
+void gicv2_set_interrupt_group(unsigned int id, unsigned int group)
 {
 	assert(driver_data != NULL);
 	assert(driver_data->gicd_base != 0U);
@@ -397,7 +398,7 @@ void gicv2_set_interrupt_type(unsigned int id, unsigned int type)
 
 	/* Serialize read-modify-write to Distributor registers */
 	spin_lock(&gic_lock);
-	switch (type) {
+	switch (group) {
 	case GICV2_INTR_GROUP1:
 		gicd_set_igroupr(driver_data->gicd_base, id);
 		break;
@@ -417,7 +418,7 @@ void gicv2_set_interrupt_type(unsigned int id, unsigned int type)
  * The proc_num parameter must be the linear index of the target PE in the
  * system.
  ******************************************************************************/
-void gicv2_raise_sgi(int sgi_num, int proc_num)
+void gicv2_raise_sgi(int sgi_num, bool ns, int proc_num)
 {
 	unsigned int sgir_val, target;
 
@@ -437,7 +438,7 @@ void gicv2_raise_sgi(int sgi_num, int proc_num)
 	target = driver_data->target_masks[proc_num];
 	assert(target != 0U);
 
-	sgir_val = GICV2_SGIR_VALUE(SGIR_TGT_SPECIFIC, target, sgi_num);
+	sgir_val = GICV2_SGIR_VALUE(SGIR_TGT_SPECIFIC, target, ns, sgi_num);
 
 	/*
 	 * Ensure that any shared variable updates depending on out of band

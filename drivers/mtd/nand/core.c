@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019, STMicroelectronics - All Rights Reserved
+ * Copyright (c) 2019-2022, STMicroelectronics - All Rights Reserved
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -8,18 +8,29 @@
 #include <errno.h>
 #include <stddef.h>
 
-#include <platform_def.h>
-
 #include <common/debug.h>
 #include <drivers/delay_timer.h>
 #include <drivers/nand.h>
 #include <lib/utils.h>
 
+#include <platform_def.h>
+
 /*
  * Define a single nand_device used by specific NAND frameworks.
  */
 static struct nand_device nand_dev;
-static uint8_t scratch_buff[PLATFORM_MTD_MAX_PAGE_SIZE];
+
+#pragma weak plat_get_scratch_buffer
+void plat_get_scratch_buffer(void **buffer_addr, size_t *buf_size)
+{
+	static uint8_t scratch_buff[PLATFORM_MTD_MAX_PAGE_SIZE];
+
+	assert(buffer_addr != NULL);
+	assert(buf_size != NULL);
+
+	*buffer_addr = (void *)scratch_buff;
+	*buf_size = sizeof(scratch_buff);
+}
 
 int nand_read(unsigned int offset, uintptr_t buffer, size_t length,
 	      size_t *length_read)
@@ -34,6 +45,12 @@ int nand_read(unsigned int offset, uintptr_t buffer, size_t length,
 	unsigned int bytes_read;
 	int is_bad;
 	int ret;
+	uint8_t *scratch_buff;
+	size_t scratch_buff_size;
+
+	plat_get_scratch_buffer((void **)&scratch_buff, &scratch_buff_size);
+
+	assert(scratch_buff != NULL);
 
 	VERBOSE("Block %u - %u, page_start %u, nb %u, length %zu, offset %u\n",
 		block, end_block, page_start, nb_pages, length, offset);
@@ -41,7 +58,7 @@ int nand_read(unsigned int offset, uintptr_t buffer, size_t length,
 	*length_read = 0UL;
 
 	if (((start_offset != 0U) || (length % nand_dev.page_size) != 0U) &&
-	    (sizeof(scratch_buff) < nand_dev.page_size)) {
+	    (scratch_buff_size < nand_dev.page_size)) {
 		return -EINVAL;
 	}
 
@@ -108,6 +125,47 @@ int nand_read(unsigned int offset, uintptr_t buffer, size_t length,
 		page_start = 0U;
 		block++;
 	}
+
+	return 0;
+}
+
+int nand_seek_bb(uintptr_t base, unsigned int offset, size_t *extra_offset)
+{
+	unsigned int block;
+	unsigned int offset_block;
+	unsigned int max_block;
+	int is_bad;
+	size_t count_bb = 0U;
+
+	block = base / nand_dev.block_size;
+
+	if (offset != 0U) {
+		offset_block = (base + offset - 1U) / nand_dev.block_size;
+	} else {
+		offset_block = block;
+	}
+
+	max_block = nand_dev.size / nand_dev.block_size;
+
+	while (block <= offset_block) {
+		if (offset_block >= max_block) {
+			return -EIO;
+		}
+
+		is_bad = nand_dev.mtd_block_is_bad(block);
+		if (is_bad < 0) {
+			return is_bad;
+		}
+
+		if (is_bad == 1) {
+			count_bb++;
+			offset_block++;
+		}
+
+		block++;
+	}
+
+	*extra_offset = count_bb * nand_dev.block_size;
 
 	return 0;
 }

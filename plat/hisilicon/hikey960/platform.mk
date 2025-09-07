@@ -1,11 +1,11 @@
 #
-# Copyright (c) 2017-2020, ARM Limited and Contributors. All rights reserved.
+# Copyright (c) 2017-2025, Arm Limited and Contributors. All rights reserved.
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
 
 # Non-TF Boot ROM
-BL2_AT_EL3	:=	1
+RESET_TO_BL2	:=	1
 
 # On Hikey960, the TSP can execute from TZC secure area in DRAM.
 HIKEY960_TSP_RAM_LOCATION	?=	dram
@@ -46,10 +46,11 @@ PLAT_INCLUDES		:=	-Iplat/hisilicon/hikey960/include
 PLAT_BL_COMMON_SOURCES	:=	drivers/arm/pl011/aarch64/pl011_console.S \
 				drivers/delay_timer/delay_timer.c	\
 				drivers/delay_timer/generic_delay_timer.c \
-				lib/xlat_tables/aarch64/xlat_tables.c	\
-				lib/xlat_tables/xlat_tables_common.c	\
 				plat/hisilicon/hikey960/aarch64/hikey960_common.c \
 				plat/hisilicon/hikey960/hikey960_boardid.c
+
+include lib/xlat_tables_v2/xlat_tables.mk
+PLAT_BL_COMMON_SOURCES	+=	${XLAT_TABLES_LIB_SRCS}
 
 HIKEY960_GIC_SOURCES	:=	drivers/arm/gic/common/gic_common.c	\
 				drivers/arm/gic/v2/gicv2_main.c		\
@@ -94,6 +95,10 @@ ifeq (${SPD},opteed)
 BL2_SOURCES		+=	lib/optee/optee_utils.c
 endif
 
+include lib/zlib/zlib.mk
+PLAT_INCLUDES		+=	-Ilib/zlib
+BL2_SOURCES		+=	$(ZLIB_SOURCES)
+
 BL31_SOURCES		+=	drivers/arm/cci/cci.c			\
 				drivers/arm/pl061/pl061_gpio.c		\
 				drivers/gpio/gpio.c			\
@@ -115,10 +120,11 @@ ifneq (${TRUSTED_BOARD_BOOT},0)
 include drivers/auth/mbedtls/mbedtls_crypto.mk
 include drivers/auth/mbedtls/mbedtls_x509.mk
 
-AUTH_SOURCES		:=	drivers/auth/auth_mod.c			\
-				drivers/auth/crypto_mod.c		\
-				drivers/auth/img_parser_mod.c		\
-				drivers/auth/tbbr/tbbr_cot_common.c
+AUTH_MK := drivers/auth/auth.mk
+$(info Including ${AUTH_MK})
+include ${AUTH_MK}
+
+AUTH_SOURCES		+=	drivers/auth/tbbr/tbbr_cot_common.c
 
 BL1_SOURCES		+=	${AUTH_SOURCES}				\
 				plat/common/tbbr/plat_tbbr.c		\
@@ -140,14 +146,14 @@ $(BUILD_PLAT)/bl1/hikey960_rotpk.o: $(ROTPK_HASH)
 $(BUILD_PLAT)/bl2/hikey960_rotpk.o: $(ROTPK_HASH)
 
 certificates: $(ROT_KEY)
-$(ROT_KEY): | $(BUILD_PLAT)
-	@echo "  OPENSSL $@"
-	$(Q)openssl genrsa 2048 > $@ 2>/dev/null
+$(ROT_KEY): | $$(@D)/
+	$(s)echo "  OPENSSL $@"
+	$(q)${OPENSSL_BIN_PATH}/openssl genrsa 2048 > $@ 2>/dev/null
 
-$(ROTPK_HASH): $(ROT_KEY)
-	@echo "  OPENSSL $@"
-	$(Q)openssl rsa -in $< -pubout -outform DER 2>/dev/null |\
-	openssl dgst -sha256 -binary > $@ 2>/dev/null
+$(ROTPK_HASH): $(ROT_KEY) | $$(@D)/
+	$(s)echo "  OPENSSL $@"
+	$(q)${OPENSSL_BIN_PATH}/openssl rsa -in $< -pubout -outform DER 2>/dev/null |\
+	${OPENSSL_BIN_PATH}/openssl dgst -sha256 -binary > $@ 2>/dev/null
 endif
 
 # Enable workarounds for selected Cortex-A53 errata.
@@ -156,3 +162,22 @@ ERRATA_A53_843419		:=	1
 ERRATA_A53_855873		:=	1
 
 FIP_ALIGN			:=	512
+
+# SPM dispatcher
+ifeq (${SPD},spmd)
+ifeq (${SPMC_AT_EL3},1)
+# include device tree helper library
+include lib/libfdt/libfdt.mk
+BL31_SOURCES		+=	common/fdt_wrappers.c		\
+				${LIBFDT_SRCS}			\
+				common/uuid.c
+
+# Add support for platform supplied linker script for BL31 build
+$(eval $(call add_define,PLAT_EXTRA_LD_SCRIPT))
+endif
+
+ifeq ($(PLAT_SP_MANIFEST_DTS),)
+        $(error "Error: A SP manifest is required for the SPMC.")
+endif
+FDT_SOURCES		+=	${PLAT_SP_MANIFEST_DTS}
+endif

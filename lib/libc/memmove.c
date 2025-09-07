@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2018, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2013-2018, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -16,7 +16,7 @@ void *memmove(void *dst, const void *src, size_t len)
 	 * that issue is probably moot as such usage is probably undefined
 	 * behaviour and a bug anyway.
 	 */
-	if ((size_t)dst - (size_t)src >= len) {
+	if (((size_t)dst - (size_t)src) >= len) {
 		/* destination not in source data, so can safely use memcpy */
 		return memcpy(dst, src, len);
 	} else {

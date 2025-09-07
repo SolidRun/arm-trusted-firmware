@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2019, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2015-2024, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -7,18 +7,19 @@
 #include <assert.h>
 #include <errno.h>
 
-#include <platform_def.h>
-
 #include <arch_helpers.h>
 #include <bl32/sp_min/platform_sp_min.h>
 #include <common/debug.h>
 #include <drivers/arm/gic_common.h>
 #include <drivers/arm/gicv2.h>
-#include <drivers/st/stm32mp1_clk.h>
+#include <drivers/clk.h>
+#include <drivers/st/stm32mp_reset.h>
 #include <dt-bindings/clock/stm32mp1-clks.h>
 #include <lib/mmio.h>
 #include <lib/psci/psci.h>
 #include <plat/common/platform.h>
+
+#include <platform_def.h>
 
 static uintptr_t stm32_sec_entrypoint;
 static uint32_t cntfrq_core0;
@@ -42,7 +43,7 @@ static void stm32_cpu_standby(plat_local_state_t cpu_state)
 	while (interrupt == GIC_SPURIOUS_INTERRUPT) {
 		wfi();
 
-		/* Acknoledge IT */
+		/* Acknowledge IT */
 		interrupt = gicv2_acknowledge_interrupt();
 		/* If Interrupt == 1022 it will be acknowledged by non secure */
 		if ((interrupt != PENDING_G1_INTID) &&
@@ -60,9 +61,9 @@ static void stm32_cpu_standby(plat_local_state_t cpu_state)
 static int stm32_pwr_domain_on(u_register_t mpidr)
 {
 	unsigned long current_cpu_mpidr = read_mpidr_el1();
-	uint32_t bkpr_core1_addr =
+	uintptr_t bkpr_core1_addr =
 		tamp_bkpr(BOOT_API_CORE1_BRANCH_ADDRESS_TAMP_BCK_REG_IDX);
-	uint32_t bkpr_core1_magic =
+	uintptr_t bkpr_core1_magic =
 		tamp_bkpr(BOOT_API_CORE1_MAGIC_NUMBER_TAMP_BCK_REG_IDX);
 
 	if (mpidr == current_cpu_mpidr) {
@@ -74,7 +75,7 @@ static int stm32_pwr_domain_on(u_register_t mpidr)
 		return PSCI_E_INVALID_ADDRESS;
 	}
 
-	stm32mp_clk_enable(RTCAPB);
+	clk_enable(RTCAPB);
 
 	cntfrq_core0 = read_cntfrq_el0();
 
@@ -84,10 +85,10 @@ static int stm32_pwr_domain_on(u_register_t mpidr)
 	/* Write magic number in backup register */
 	mmio_write_32(bkpr_core1_magic, BOOT_API_A7_CORE1_MAGIC_NUMBER);
 
-	stm32mp_clk_disable(RTCAPB);
+	clk_disable(RTCAPB);
 
 	/* Generate an IT to core 1 */
-	gicv2_raise_sgi(ARM_IRQ_SEC_SGI_0, STM32MP_SECONDARY_CPU);
+	gicv2_raise_sgi(ARM_IRQ_SEC_SGI_0, false, STM32MP_SECONDARY_CPU);
 
 	return PSCI_E_SUCCESS;
 }
@@ -118,7 +119,7 @@ static void stm32_pwr_domain_suspend(const psci_power_state_t *target_state)
  ******************************************************************************/
 static void stm32_pwr_domain_on_finish(const psci_power_state_t *target_state)
 {
-	stm32mp1_gic_pcpu_init();
+	stm32mp_gic_pcpu_init();
 
 	write_cntfrq_el0(cntfrq_core0);
 }
@@ -149,29 +150,21 @@ static void __dead2 stm32_system_off(void)
 
 static void __dead2 stm32_system_reset(void)
 {
-	mmio_setbits_32(stm32mp_rcc_base() + RCC_MP_GRSTCSETR,
-			RCC_MP_GRSTCSETR_MPSYSRST);
-
-	/* Loop in case system reset is not immediately caught */
-	for ( ; ; ) {
-		;
-	}
+	stm32mp_system_reset();
 }
 
 static int stm32_validate_power_state(unsigned int power_state,
 				      psci_power_state_t *req_state)
 {
-	int pstate = psci_get_pstate_type(power_state);
-
-	if (pstate != 0) {
+	if (psci_get_pstate_type(power_state) != 0U) {
 		return PSCI_E_INVALID_PARAMS;
 	}
 
-	if (psci_get_pstate_pwrlvl(power_state)) {
+	if (psci_get_pstate_pwrlvl(power_state) != 0U) {
 		return PSCI_E_INVALID_PARAMS;
 	}
 
-	if (psci_get_pstate_id(power_state)) {
+	if (psci_get_pstate_id(power_state) != 0U) {
 		return PSCI_E_INVALID_PARAMS;
 	}
 
@@ -222,7 +215,7 @@ static const plat_psci_ops_t stm32_psci_ops = {
 	.pwr_domain_suspend = stm32_pwr_domain_suspend,
 	.pwr_domain_on_finish = stm32_pwr_domain_on_finish,
 	.pwr_domain_suspend_finish = stm32_pwr_domain_suspend_finish,
-	.pwr_domain_pwr_down_wfi = stm32_pwr_domain_pwr_down_wfi,
+	.pwr_domain_pwr_down = stm32_pwr_domain_pwr_down_wfi,
 	.system_off = stm32_system_off,
 	.system_reset = stm32_system_reset,
 	.validate_power_state = stm32_validate_power_state,

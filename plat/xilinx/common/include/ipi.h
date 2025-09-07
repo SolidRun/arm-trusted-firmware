@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2018, Xilinx, Inc. All rights reserved.
+ * Copyright (c) 2022-2025, Advanced Micro Devices, Inc. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -14,22 +15,22 @@
 /*********************************************************************
  * IPI mailbox status macros
  ********************************************************************/
-#define IPI_MB_STATUS_IDLE		0
-#define IPI_MB_STATUS_SEND_PENDING	1
-#define IPI_MB_STATUS_RECV_PENDING	2
+#define IPI_MB_STATUS_IDLE		(0U)
+#define IPI_MB_STATUS_SEND_PENDING	(1U)
+#define IPI_MB_STATUS_RECV_PENDING	(2U)
 
 /*********************************************************************
  * IPI mailbox call is secure or not macros
  ********************************************************************/
-#define IPI_MB_CALL_NOTSECURE	0
-#define IPI_MB_CALL_SECURE	1
+#define IPI_MB_CALL_NOTSECURE	(0U)
+#define IPI_MB_CALL_SECURE	(1U)
 
 /*********************************************************************
  * IPI secure check
  ********************************************************************/
-#define IPI_SECURE_MASK  0x1U
+#define IPI_SECURE_MASK  (0x1U)
 #define IPI_IS_SECURE(I) ((ipi_table[(I)].secure_only & \
-			   IPI_SECURE_MASK) ? 1 : 0)
+			   IPI_SECURE_MASK) ? true : false)
 
 /*********************************************************************
  * Struct definitions
@@ -47,7 +48,7 @@ struct ipi_config {
  ********************************************************************/
 
 /* Initialize IPI configuration table */
-void ipi_config_table_init(const struct ipi_config *ipi_table,
+void ipi_config_table_init(const struct ipi_config *ipi_config_table,
 			   uint32_t total_ipi);
 
 /* Validate IPI mailbox access */
@@ -60,10 +61,10 @@ void ipi_mb_open(uint32_t local, uint32_t remote);
 void ipi_mb_release(uint32_t local, uint32_t remote);
 
 /* Enquire IPI mailbox status */
-int ipi_mb_enquire_status(uint32_t local, uint32_t remote);
+uint32_t ipi_mb_enquire_status(uint32_t local, uint32_t remote);
 
 /* Trigger notification on the IPI mailbox */
-int ipi_mb_notify(uint32_t local, uint32_t remote, uint32_t is_blocking);
+void ipi_mb_notify(uint32_t local, uint32_t remote, uint32_t is_blocking);
 
 /* Ack IPI mailbox notification */
 void ipi_mb_ack(uint32_t local, uint32_t remote);

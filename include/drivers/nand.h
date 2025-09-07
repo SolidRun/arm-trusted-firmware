@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019, STMicroelectronics - All Rights Reserved
+ * Copyright (c) 2019-2022, STMicroelectronics - All Rights Reserved
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -33,6 +33,8 @@ struct nand_device {
 			     uintptr_t buffer);
 };
 
+void plat_get_scratch_buffer(void **buffer_addr, size_t *buf_size);
+
 /*
  * Read bytes from NAND device
  *
@@ -44,6 +46,16 @@ struct nand_device {
  */
 int nand_read(unsigned int offset, uintptr_t buffer, size_t length,
 	      size_t *length_read);
+
+/*
+ * Look for an extra offset to be added in case of bad blocks
+ *
+ * @base: Base address of the area
+ * @offset: Byte offset to read from in device
+ * @extra_offset: [out] Extra offset to be added if bad blocks are found
+ * Return: 0 on success, a negative errno on failure
+ */
+int nand_seek_bb(uintptr_t base, unsigned int offset, size_t *extra_offset);
 
 /*
  * Get NAND device instance

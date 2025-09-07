@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2018-2023, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -11,36 +11,31 @@
 #include <arch_helpers.h>
 #include <lib/extensions/mpam.h>
 
-void mpam_enable(bool el2_unused)
+void mpam_enable_per_world(per_world_context_t *per_world_ctx)
 {
-	/* Check if MPAM is implemented */
-	if (get_mpam_version() == 0U) {
-		return;
-	}
+	u_register_t mpam3_el3;
 
 	/*
 	 * Enable MPAM, and disable trapping to EL3 when lower ELs access their
-	 * own MPAM registers.
+	 * own MPAM registers
 	 */
-	write_mpam3_el3(MPAM3_EL3_MPAMEN_BIT);
+	mpam3_el3 = per_world_ctx->ctx_mpam3_el3;
+	mpam3_el3 = (mpam3_el3 | MPAM3_EL3_MPAMEN_BIT) &
+				~(MPAM3_EL3_TRAPLOWER_BIT);
 
-	/*
-	 * If EL2 is implemented but unused, disable trapping to EL2 when lower
-	 * ELs access their own MPAM registers.
-	 * If EL2 is implemented and used, enable trapping to EL2.
-	 */
-	if (el2_unused) {
-		write_mpam2_el2(0ULL);
+	per_world_ctx->ctx_mpam3_el3 = mpam3_el3;
+}
 
-		if ((read_mpamidr_el1() & MPAMIDR_HAS_HCR_BIT) != 0U) {
-			write_mpamhcr_el2(0ULL);
-		}
-	} else {
-		write_mpam2_el2(MPAM2_EL2_TRAPMPAM0EL1 |
-				MPAM2_EL2_TRAPMPAM1EL1);
+/*
+ * If EL2 is implemented but unused, disable trapping to EL2 when lower ELs
+ * access their own MPAM registers.
+ */
+void mpam_init_el2_unused(void)
+{
+	write_mpam2_el2(0ULL);
 
-		if ((read_mpamidr_el1() & MPAMIDR_HAS_HCR_BIT) != 0U) {
-			write_mpamhcr_el2(MPAMHCR_EL2_TRAP_MPAMIDR_EL1);
-		}
+	if ((read_mpamidr_el1() & MPAMIDR_HAS_HCR_BIT) != 0U) {
+		write_mpamhcr_el2(0ULL);
 	}
+
 }

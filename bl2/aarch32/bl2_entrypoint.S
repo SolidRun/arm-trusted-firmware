@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2021, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2016-2024, ARM Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -16,8 +16,8 @@ vector_base bl2_vector_table
 	b	bl2_entrypoint
 	b	report_exception	/* Undef */
 	b	report_exception	/* SVC call */
-	b	report_exception	/* Prefetch abort */
-	b	report_exception	/* Data abort */
+	b	report_prefetch_abort	/* Prefetch abort */
+	b	report_data_abort	/* Data abort */
 	b	report_exception	/* Reserved */
 	b	report_exception	/* IRQ */
 	b	report_exception	/* FIQ */
@@ -29,10 +29,10 @@ func bl2_entrypoint
 	 * use.
 	 * ---------------------------------------------
 	 */
-	mov	r9, r0
-	mov	r10, r1
-	mov	r11, r2
-	mov	r12, r3
+	mov	r8, r0
+	mov	r9, r1
+	mov	r10, r2
+	mov	r11, r3
 
 	/* ---------------------------------------------
 	 * Set the exception vector to something sane.
@@ -114,10 +114,10 @@ func bl2_entrypoint
 	 * Perform BL2 setup
 	 * ---------------------------------------------
 	 */
-	mov	r0, r9
-	mov	r1, r10
-	mov	r2, r11
-	mov	r3, r12
+	mov	r0, r8
+	mov	r1, r9
+	mov	r2, r10
+	mov	r3, r11
 
 	bl	bl2_setup
 

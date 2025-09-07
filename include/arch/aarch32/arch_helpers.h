@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2016-2021, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2016-2024, ARM Limited and Contributors. All rights reserved.
+ * Portions copyright (c) 2021-2022, ProvenRun S.A.S. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -7,6 +8,7 @@
 #ifndef ARCH_HELPERS_H
 #define ARCH_HELPERS_H
 
+#include <assert.h>
 #include <cdefs.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -216,9 +218,13 @@ DEFINE_SYSREG_RW_FUNCS(cpsr)
  ******************************************************************************/
 DEFINE_COPROCR_READ_FUNC(mpidr, MPIDR)
 DEFINE_COPROCR_READ_FUNC(midr, MIDR)
+DEFINE_COPROCR_READ_FUNC(id_mmfr3, ID_MMFR3)
 DEFINE_COPROCR_READ_FUNC(id_mmfr4, ID_MMFR4)
+DEFINE_COPROCR_READ_FUNC(id_dfr0, ID_DFR0)
+DEFINE_COPROCR_READ_FUNC(id_dfr1, ID_DFR1)
 DEFINE_COPROCR_READ_FUNC(id_pfr0, ID_PFR0)
 DEFINE_COPROCR_READ_FUNC(id_pfr1, ID_PFR1)
+DEFINE_COPROCR_READ_FUNC(id_pfr2, ID_PFR2)
 DEFINE_COPROCR_READ_FUNC(isr, ISR)
 DEFINE_COPROCR_READ_FUNC(clidr, CLIDR)
 DEFINE_COPROCR_READ_FUNC_64(cntpct, CNTPCT_64)
@@ -281,10 +287,12 @@ DEFINE_COPROCR_RW_FUNCS(icc_eoir0_el1, ICC_EOIR0)
 DEFINE_COPROCR_RW_FUNCS(icc_eoir1_el1, ICC_EOIR1)
 DEFINE_COPROCR_RW_FUNCS_64(icc_sgi0r_el1, ICC_SGI0R_EL1_64)
 DEFINE_COPROCR_WRITE_FUNC_64(icc_sgi1r, ICC_SGI1R_EL1_64)
+DEFINE_COPROCR_WRITE_FUNC_64(icc_asgi1r, ICC_ASGI1R_EL1_64)
 
+DEFINE_COPROCR_RW_FUNCS(sdcr, SDCR)
 DEFINE_COPROCR_RW_FUNCS(hdcr, HDCR)
 DEFINE_COPROCR_RW_FUNCS(cnthp_ctl, CNTHP_CTL)
-DEFINE_COPROCR_READ_FUNC(pmcr, PMCR)
+DEFINE_COPROCR_RW_FUNCS(pmcr, PMCR)
 
 /*
  * Address translation
@@ -316,6 +324,23 @@ DEFINE_COPROCR_RW_FUNCS_64(amevcntr01, AMEVCNTR01)
 DEFINE_COPROCR_RW_FUNCS_64(amevcntr02, AMEVCNTR02)
 DEFINE_COPROCR_RW_FUNCS_64(amevcntr03, AMEVCNTR03)
 
+DEFINE_COPROCR_RW_FUNCS_64(amevcntr10, AMEVCNTR10);
+DEFINE_COPROCR_RW_FUNCS_64(amevcntr11, AMEVCNTR11);
+DEFINE_COPROCR_RW_FUNCS_64(amevcntr12, AMEVCNTR12);
+DEFINE_COPROCR_RW_FUNCS_64(amevcntr13, AMEVCNTR13);
+DEFINE_COPROCR_RW_FUNCS_64(amevcntr14, AMEVCNTR14);
+DEFINE_COPROCR_RW_FUNCS_64(amevcntr15, AMEVCNTR15);
+DEFINE_COPROCR_RW_FUNCS_64(amevcntr16, AMEVCNTR16);
+DEFINE_COPROCR_RW_FUNCS_64(amevcntr17, AMEVCNTR17);
+DEFINE_COPROCR_RW_FUNCS_64(amevcntr18, AMEVCNTR18);
+DEFINE_COPROCR_RW_FUNCS_64(amevcntr19, AMEVCNTR19);
+DEFINE_COPROCR_RW_FUNCS_64(amevcntr1a, AMEVCNTR1A);
+DEFINE_COPROCR_RW_FUNCS_64(amevcntr1b, AMEVCNTR1B);
+DEFINE_COPROCR_RW_FUNCS_64(amevcntr1c, AMEVCNTR1C);
+DEFINE_COPROCR_RW_FUNCS_64(amevcntr1d, AMEVCNTR1D);
+DEFINE_COPROCR_RW_FUNCS_64(amevcntr1e, AMEVCNTR1E);
+DEFINE_COPROCR_RW_FUNCS_64(amevcntr1f, AMEVCNTR1F);
+
 /*
  * TLBI operation prototypes
  */
@@ -346,6 +371,25 @@ DEFINE_DCOP_PARAM_FUNC(cvac, DCCMVAC)
  * DynamIQ Shared Unit power management
  */
 DEFINE_COPROCR_RW_FUNCS(clusterpwrdn, CLUSTERPWRDN)
+DEFINE_COPROCR_RW_FUNCS(clusterpmcr, CLUSTERPMCR)
+DEFINE_COPROCR_RW_FUNCS(clusterpmcntenset, CLUSTERPMCNTENSET)
+DEFINE_COPROCR_RW_FUNCS(clusterpmccntr, CLUSTERPMCCNTR)
+DEFINE_COPROCR_RW_FUNCS(clusterpmovsset, CLUSTERPMOVSSET)
+DEFINE_COPROCR_RW_FUNCS(clusterpmovsclr, CLUSTERPMOVSCLR)
+DEFINE_COPROCR_RW_FUNCS(clusterpmselr, CLUSTERPMSELR)
+DEFINE_COPROCR_RW_FUNCS(clusterpmxevcntr, CLUSTERPMXEVCNTR)
+DEFINE_COPROCR_RW_FUNCS(clusterpmxevtyper, CLUSTERPMXEVTYPER)
+
+/*
+ * RNDR is AArch64 only, so just provide a placeholder here to make the
+ * linker happy.
+ */
+static inline u_register_t read_rndr(void)
+{
+	assert(1);
+
+	return 0;
+}
 
 /* Previously defined accessor functions with incomplete register names  */
 #define dsb()			dsbsy()
@@ -400,6 +444,8 @@ static inline unsigned int get_current_el(void)
 #define read_ctr_el0()		read_ctr()
 
 #define write_icc_sgi0r_el1(_v)	write64_icc_sgi0r_el1(_v)
+#define write_icc_sgi1r(_v)	write64_icc_sgi1r(_v)
+#define write_icc_asgi1r(_v)	write64_icc_asgi1r(_v)
 
 #define read_daif()		read_cpsr()
 #define write_daif(flags)	write_cpsr(flags)

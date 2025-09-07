@@ -1,9 +1,10 @@
 /*
- * Copyright (c) 2020, NVIDIA Corporation. All rights reserved.
+ * Copyright (c) 2020-2021, NVIDIA Corporation. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include <inttypes.h>
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -54,7 +55,7 @@ static void tegra194_ea_handler(unsigned int ea_reason, uint64_t syndrome,
 
 	ras_lock();
 
-	ERROR("MPIDR 0x%lx: exception reason=%u syndrome=0x%llx\n",
+	ERROR("MPIDR 0x%lx: exception reason=%u syndrome=0x%" PRIx64 "\n",
 		read_mpidr(), ea_reason, syndrome);
 
 	/* Call RAS EA handler */
@@ -146,17 +147,11 @@ void tegra194_ras_enable(void)
 			/* enable the supported errors */
 			err_ctrl |= err_fr;
 
-			VERBOSE("errselr_el1:0x%x, erxfr:0x%llx, err_ctrl:0x%llx\n",
+			VERBOSE("errselr_el1:0x%x, erxfr:0x%" PRIx64 ", err_ctrl:0x%" PRIx64 "\n",
 				idx_start + j, err_fr, err_ctrl);
 
 			/* enable specified errors, or set to 0 if no supported error */
 			write_erxctlr_el1(err_ctrl);
-
-			/*
-			 * Check if all the bit settings have been enabled to detect
-			 * uncorrected/corrected errors, if not assert.
-			 */
-			assert(read_erxctlr_el1() == err_ctrl);
 		}
 	}
 }
@@ -254,7 +249,6 @@ void tegra194_ras_corrected_err_clear(uint64_t *cookie)
 	 * of range.
 	 */
 	*cookie = 0ULL;
-	return;
 }
 
 /* Function to probe an error from error record group. */
@@ -288,9 +282,9 @@ static int32_t tegra194_ras_node_handler(uint32_t errselr, const char *name,
 	/* keep the log print same as linux arm64_ras driver. */
 	ERROR("**************************************\n");
 	ERROR("RAS Error in %s, ERRSELR_EL1=0x%x:\n", name, errselr);
-	ERROR("\tStatus = 0x%llx\n", status);
+	ERROR("\tStatus = 0x%" PRIx64 "\n", status);
 
-	/* Print uncorrectable errror information. */
+	/* Print uncorrectable error information. */
 	if (ERR_STATUS_GET_FIELD(status, UE) != 0U) {
 
 		ERR_STATUS_SET_FIELD(val, UE, 1);
@@ -490,12 +484,9 @@ REGISTER_RAS_INTERRUPTS(carmel_ras_interrupts);
 void plat_ea_handler(unsigned int ea_reason, uint64_t syndrome, void *cookie,
 		void *handle, uint64_t flags)
 {
-#if RAS_EXTENSION
+#if ENABLE_FEAT_RAS
 	tegra194_ea_handler(ea_reason, syndrome, cookie, handle, flags);
 #else
-	ERROR("Unhandled External Abort received on 0x%llx at EL3!\n",
-			read_mpidr_el1());
-	ERROR(" exception reason=%u syndrome=0x%lx\n", ea_reason, syndrome);
-	panic();
+	plat_default_ea_handler(ea_reason, syndrome, cookie, handle, flags);
 #endif
 }

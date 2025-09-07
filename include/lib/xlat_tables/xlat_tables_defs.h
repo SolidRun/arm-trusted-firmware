@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2020, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2017-2025, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -62,10 +62,8 @@
 #define OSH			(U(0x2) << 6)
 #define ISH			(U(0x3) << 6)
 
-#ifdef __aarch64__
 /* Guarded Page bit */
 #define GP			(ULL(1) << 50)
-#endif
 
 #define TABLE_ADDR_MASK		ULL(0x0000FFFFFFFFF000)
 
@@ -142,6 +140,7 @@
 #define AP_NO_ACCESS_UNPRIVILEGED	(AP1_NO_ACCESS_UNPRIVILEGED << 4)
 #define AP_ONE_VA_RANGE_RES1		(AP1_RES1 << 4)
 #define NS				(U(0x1) << 3)
+#define EL3_S1_NSE			(U(0x1) << 9)
 #define ATTR_NON_CACHEABLE_INDEX	ULL(0x2)
 #define ATTR_DEVICE_INDEX		ULL(0x1)
 #define ATTR_IWBWA_OWBWA_NTR_INDEX	ULL(0x0)
@@ -170,8 +169,10 @@
 #define SHAREABILITY_SHIFT		8
 /* The Access Flag, AF. */
 #define ACCESS_FLAG_SHIFT		10
-/* The not global bit, nG. */
+/* The not global bit, nG */
 #define NOT_GLOBAL_SHIFT		11
+/* The Non-secure Extension bit, NSE */
+#define NSE_SHIFT			11
 /* Contiguous hint bit. */
 #define CONT_HINT_SHIFT			52
 /* Execute-never bits, XN. */

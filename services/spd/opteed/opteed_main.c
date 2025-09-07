@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2017, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2013-2023, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -16,6 +16,7 @@
  ******************************************************************************/
 #include <assert.h>
 #include <errno.h>
+#include <inttypes.h>
 #include <stddef.h>
 
 #include <arch_helpers.h>
@@ -23,13 +24,24 @@
 #include <common/bl_common.h>
 #include <common/debug.h>
 #include <common/runtime_svc.h>
+#include <lib/coreboot.h>
 #include <lib/el3_runtime/context_mgmt.h>
+#include <lib/optee_utils.h>
+#include <lib/transfer_list.h>
+#include <lib/xlat_tables/xlat_tables_v2.h>
+#if OPTEE_ALLOW_SMC_LOAD
+#include <libfdt.h>
+#endif  /* OPTEE_ALLOW_SMC_LOAD */
 #include <plat/common/platform.h>
+#include <services/oem/chromeos/widevine_smc_handlers.h>
 #include <tools_share/uuid.h>
 
 #include "opteed_private.h"
 #include "teesmc_opteed.h"
-#include "teesmc_opteed_macros.h"
+
+#if OPTEE_ALLOW_SMC_LOAD
+static struct transfer_list_header *bl31_tl;
+#endif
 
 /*******************************************************************************
  * Address of the entrypoint vector table in OPTEE. It is
@@ -43,7 +55,24 @@ struct optee_vectors *optee_vector_table;
 optee_context_t opteed_sp_context[OPTEED_CORE_COUNT];
 uint32_t opteed_rw;
 
+#if OPTEE_ALLOW_SMC_LOAD
+static bool opteed_allow_load;
+/* OP-TEE image loading service UUID */
+DEFINE_SVC_UUID2(optee_image_load_uuid,
+	0xb1eafba3, 0x5d31, 0x4612, 0xb9, 0x06,
+	0xc4, 0xc7, 0xa4, 0xbe, 0x3c, 0xc0);
+
+#define OPTEED_FDT_SIZE 1024
+static uint8_t fdt_buf[OPTEED_FDT_SIZE] __aligned(CACHE_WRITEBACK_GRANULE);
+
+#else
 static int32_t opteed_init(void);
+#endif
+
+uint64_t dual32to64(uint32_t high, uint32_t low)
+{
+	return ((uint64_t)high << 32) | low;
+}
 
 /*******************************************************************************
  * This function is the handler registered for S-EL1 interrupts by the
@@ -57,6 +86,13 @@ static uint64_t opteed_sel1_interrupt_handler(uint32_t id,
 {
 	uint32_t linear_id;
 	optee_context_t *optee_ctx;
+
+#if OPTEE_ALLOW_SMC_LOAD
+	if (optee_vector_table == NULL) {
+		/* OPTEE is not loaded yet, ignore this interrupt */
+		SMC_RET0(handle);
+	}
+#endif
 
 	/* Check the security state when the exception was generated */
 	assert(get_interrupt_src_ss(flags) == NON_SECURE);
@@ -86,6 +122,24 @@ static uint64_t opteed_sel1_interrupt_handler(uint32_t id,
 	SMC_RET1(&optee_ctx->cpu_ctx, read_elr_el3());
 }
 
+/*
+ * Registers an interrupt handler for S-EL1 interrupts when generated during
+ * code executing in the non-secure state. Panics if it fails to do so.
+ */
+static void register_opteed_interrupt_handler(void)
+{
+	u_register_t flags;
+	uint64_t rc;
+
+	flags = 0;
+	set_interrupt_rm_flag(flags, NON_SECURE);
+	rc = register_interrupt_type_handler(INTR_TYPE_S_EL1,
+			opteed_sel1_interrupt_handler,
+			flags);
+	if (rc)
+		panic();
+}
+
 /*******************************************************************************
  * OPTEE Dispatcher setup. The OPTEED finds out the OPTEE entrypoint and type
  * (aarch32/aarch64) if not already known and initialises the context for entry
@@ -93,11 +147,25 @@ static uint64_t opteed_sel1_interrupt_handler(uint32_t id,
  ******************************************************************************/
 static int32_t opteed_setup(void)
 {
+#if OPTEE_ALLOW_SMC_LOAD
+	opteed_allow_load = true;
+	INFO("Delaying OP-TEE setup until we receive an SMC call to load it\n");
+	/*
+	 * We must register the interrupt handler now so that the interrupt
+	 * priorities are not changed after starting the linux kernel.
+	 */
+	register_opteed_interrupt_handler();
+	return 0;
+#else
 	entry_point_info_t *optee_ep_info;
 	uint32_t linear_id;
-	uint64_t opteed_pageable_part;
-	uint64_t opteed_mem_limit;
-	uint64_t dt_addr;
+	uint64_t arg0;
+	uint64_t arg1;
+	uint64_t arg2;
+	uint64_t arg3;
+	struct transfer_list_header *tl = NULL;
+	struct transfer_list_entry *te = NULL;
+	void *dt = NULL;
 
 	linear_id = plat_my_core_pos();
 
@@ -122,17 +190,43 @@ static int32_t opteed_setup(void)
 	if (!optee_ep_info->pc)
 		return 1;
 
-	opteed_rw = optee_ep_info->args.arg0;
-	opteed_pageable_part = optee_ep_info->args.arg1;
-	opteed_mem_limit = optee_ep_info->args.arg2;
-	dt_addr = optee_ep_info->args.arg3;
+	tl = (void *)optee_ep_info->args.arg3;
+	if (TRANSFER_LIST && transfer_list_check_header(tl)) {
+		te = transfer_list_find(tl, TL_TAG_FDT);
+		dt = transfer_list_entry_data(te);
 
-	opteed_init_optee_ep_state(optee_ep_info,
-				opteed_rw,
-				optee_ep_info->pc,
-				opteed_pageable_part,
-				opteed_mem_limit,
-				dt_addr,
+		opteed_rw = GET_RW(optee_ep_info->spsr);
+		if (opteed_rw == OPTEE_AARCH64) {
+			if (optee_ep_info->args.arg1 !=
+			    TRANSFER_LIST_HANDOFF_X1_VALUE(
+				REGISTER_CONVENTION_VERSION))
+				return 1;
+
+			arg0 = (uint64_t)dt;
+			arg2 = 0;
+		} else {
+			if (optee_ep_info->args.arg1 !=
+			    TRANSFER_LIST_HANDOFF_R1_VALUE(
+				REGISTER_CONVENTION_VERSION))
+				return 1;
+
+			arg0 = 0;
+			arg2 = (uint64_t)dt;
+		}
+
+		arg1 = optee_ep_info->args.arg1;
+		arg3 = optee_ep_info->args.arg3;
+	} else {
+		/* Default handoff arguments */
+		opteed_rw = optee_ep_info->args.arg0;
+		arg0 = optee_ep_info->args.arg1; /* opteed_pageable_part */
+		arg1 = optee_ep_info->args.arg2; /* opteed_mem_limit */
+		arg2 = optee_ep_info->args.arg3; /* dt_addr */
+		arg3 = 0;
+	}
+
+	opteed_init_optee_ep_state(optee_ep_info, opteed_rw, optee_ep_info->pc,
+				arg0, arg1, arg2, arg3,
 				&opteed_sp_context[linear_id]);
 
 	/*
@@ -142,6 +236,7 @@ static int32_t opteed_setup(void)
 	bl31_register_bl32_init(&opteed_init);
 
 	return 0;
+#endif  /* OPTEE_ALLOW_SMC_LOAD */
 }
 
 /*******************************************************************************
@@ -151,20 +246,15 @@ static int32_t opteed_setup(void)
  * used.  It also assumes that a valid non-secure context has been
  * initialised by PSCI so it does not need to save and restore any
  * non-secure state. This function performs a synchronous entry into
- * OPTEE. OPTEE passes control back to this routine through a SMC.
+ * OPTEE. OPTEE passes control back to this routine through a SMC. This returns
+ * a non-zero value on success and zero on failure.
  ******************************************************************************/
-static int32_t opteed_init(void)
+static int32_t
+opteed_init_with_entry_point(entry_point_info_t *optee_entry_point)
 {
 	uint32_t linear_id = plat_my_core_pos();
 	optee_context_t *optee_ctx = &opteed_sp_context[linear_id];
-	entry_point_info_t *optee_entry_point;
 	uint64_t rc;
-
-	/*
-	 * Get information about the OPTEE (BL32) image. Its
-	 * absence is a critical failure.
-	 */
-	optee_entry_point = bl31_plat_get_next_image_ep_info(SECURE);
 	assert(optee_entry_point);
 
 	cm_init_my_context(optee_entry_point);
@@ -179,6 +269,326 @@ static int32_t opteed_init(void)
 	return rc;
 }
 
+#if !OPTEE_ALLOW_SMC_LOAD
+static int32_t opteed_init(void)
+{
+	entry_point_info_t *optee_entry_point;
+	/*
+	 * Get information about the OP-TEE (BL32) image. Its
+	 * absence is a critical failure.
+	 */
+	optee_entry_point = bl31_plat_get_next_image_ep_info(SECURE);
+	return opteed_init_with_entry_point(optee_entry_point);
+}
+#endif  /* !OPTEE_ALLOW_SMC_LOAD */
+
+#if OPTEE_ALLOW_SMC_LOAD
+#if COREBOOT
+/*
+ * Adds a firmware/coreboot node with the coreboot table information to a device
+ * tree. Returns zero on success or if there is no coreboot table information;
+ * failure code otherwise.
+ */
+static int add_coreboot_node(void *fdt)
+{
+	int ret;
+	uint64_t coreboot_table_addr;
+	uint32_t coreboot_table_size;
+	struct {
+		uint64_t addr;
+		uint32_t size;
+	} reg_node;
+	coreboot_get_table_location(&coreboot_table_addr, &coreboot_table_size);
+	if (!coreboot_table_addr || !coreboot_table_size) {
+		WARN("Unable to get coreboot table location for device tree");
+		return 0;
+	}
+	ret = fdt_begin_node(fdt, "firmware");
+	if (ret)
+		return ret;
+
+	ret = fdt_property(fdt, "ranges", NULL, 0);
+	if (ret)
+		return ret;
+
+	ret = fdt_begin_node(fdt, "coreboot");
+	if (ret)
+		return ret;
+
+	ret = fdt_property_string(fdt, "compatible", "coreboot");
+	if (ret)
+		return ret;
+
+	reg_node.addr = cpu_to_fdt64(coreboot_table_addr);
+	reg_node.size = cpu_to_fdt32(coreboot_table_size);
+	ret = fdt_property(fdt, "reg", &reg_node,
+				sizeof(uint64_t) + sizeof(uint32_t));
+	if (ret)
+		return ret;
+
+	ret = fdt_end_node(fdt);
+	if (ret)
+		return ret;
+
+	return fdt_end_node(fdt);
+}
+#endif /* COREBOOT */
+
+#if CROS_WIDEVINE_SMC
+/*
+ * Adds a options/widevine node with the widevine table information to a device
+ * tree. Returns zero on success or if there is no widevine table information;
+ * failure code otherwise.
+ */
+static int add_options_widevine_node(void *fdt)
+{
+	int ret;
+
+	ret = fdt_begin_node(fdt, "options");
+	if (ret)
+		return ret;
+
+	ret = fdt_begin_node(fdt, "op-tee");
+	if (ret)
+		return ret;
+
+	ret = fdt_begin_node(fdt, "widevine");
+	if (ret)
+		return ret;
+
+	if (cros_oem_tpm_auth_pk.length) {
+		ret = fdt_property(fdt, "tcg,tpm-auth-public-key",
+				   cros_oem_tpm_auth_pk.buffer,
+				   cros_oem_tpm_auth_pk.length);
+		if (ret)
+			return ret;
+	}
+
+	if (cros_oem_huk.length) {
+		ret = fdt_property(fdt, "op-tee,hardware-unique-key",
+				   cros_oem_huk.buffer, cros_oem_huk.length);
+		if (ret)
+			return ret;
+	}
+
+	if (cros_oem_rot.length) {
+		ret = fdt_property(fdt, "google,widevine-root-of-trust-ecc-p256",
+				   cros_oem_rot.buffer, cros_oem_rot.length);
+		if (ret)
+			return ret;
+	}
+
+	ret = fdt_end_node(fdt);
+	if (ret)
+		return ret;
+
+	ret = fdt_end_node(fdt);
+	if (ret)
+		return ret;
+
+	return fdt_end_node(fdt);
+}
+#endif /* CROS_WIDEVINE_SMC */
+
+/*
+ * Creates a device tree for passing into OP-TEE. Currently is populated with
+ * the coreboot table address.
+ * Returns 0 on success, error code otherwise.
+ */
+static int create_opteed_dt(void)
+{
+	int ret;
+
+	ret = fdt_create(fdt_buf, OPTEED_FDT_SIZE);
+	if (ret)
+		return ret;
+
+	ret = fdt_finish_reservemap(fdt_buf);
+	if (ret)
+		return ret;
+
+	ret = fdt_begin_node(fdt_buf, "");
+	if (ret)
+		return ret;
+
+#if COREBOOT
+	ret = add_coreboot_node(fdt_buf);
+	if (ret)
+		return ret;
+#endif /* COREBOOT */
+
+#if CROS_WIDEVINE_SMC
+	ret = add_options_widevine_node(fdt_buf);
+	if (ret)
+		return ret;
+#endif /* CROS_WIDEVINE_SMC */
+
+	ret = fdt_end_node(fdt_buf);
+	if (ret)
+		return ret;
+
+	return fdt_finish(fdt_buf);
+}
+
+static int32_t create_smc_tl(const void *fdt, uint32_t fdt_sz)
+{
+#if TRANSFER_LIST
+	bl31_tl = transfer_list_init((void *)(uintptr_t)FW_HANDOFF_BASE,
+				FW_HANDOFF_SIZE);
+	if (!bl31_tl) {
+		ERROR("Failed to initialize Transfer List at 0x%lx\n",
+		(unsigned long)FW_HANDOFF_BASE);
+		return -1;
+	}
+
+	if (!transfer_list_add(bl31_tl, TL_TAG_FDT, fdt_sz, fdt)) {
+		return -1;
+	}
+	return 0;
+#else
+	return -1;
+#endif
+}
+
+/*******************************************************************************
+ * This function is responsible for handling the SMC that loads the OP-TEE
+ * binary image via a non-secure SMC call. It takes the size and physical
+ * address of the payload as parameters.
+ ******************************************************************************/
+static int32_t opteed_handle_smc_load(uint64_t data_size, uint32_t data_pa)
+{
+	uintptr_t data_va = data_pa;
+	uint64_t mapped_data_pa;
+	uintptr_t mapped_data_va;
+	uint64_t data_map_size;
+	int32_t rc;
+	optee_header_t *image_header;
+	uint8_t *image_ptr;
+	uint64_t target_pa;
+	uint64_t target_end_pa;
+	uint64_t image_pa;
+	uintptr_t image_va;
+	optee_image_t *curr_image;
+	uintptr_t target_va;
+	uint64_t target_size;
+	entry_point_info_t optee_ep_info;
+	uint32_t linear_id = plat_my_core_pos();
+	uint64_t dt_addr = 0;
+	uint64_t arg0 = 0;
+	uint64_t arg1 = 0;
+	uint64_t arg2 = 0;
+	uint64_t arg3 = 0;
+
+	mapped_data_pa = page_align(data_pa, DOWN);
+	mapped_data_va = mapped_data_pa;
+	data_map_size = page_align(data_size + (mapped_data_pa - data_pa), UP);
+
+	/*
+	 * We do not validate the passed in address because we are trusting the
+	 * non-secure world at this point still.
+	 */
+	rc = mmap_add_dynamic_region(mapped_data_pa, mapped_data_va,
+				     data_map_size, MT_MEMORY | MT_RO | MT_NS);
+	if (rc != 0) {
+		return rc;
+	}
+
+	image_header = (optee_header_t *)data_va;
+	if (image_header->magic != TEE_MAGIC_NUM_OPTEE ||
+	    image_header->version != 2 || image_header->nb_images != 1) {
+		mmap_remove_dynamic_region(mapped_data_va, data_map_size);
+		return -EINVAL;
+	}
+
+	image_ptr = (uint8_t *)data_va + sizeof(optee_header_t) +
+			sizeof(optee_image_t);
+	if (image_header->arch == 1) {
+		opteed_rw = OPTEE_AARCH64;
+	} else {
+		opteed_rw = OPTEE_AARCH32;
+	}
+
+	curr_image = &image_header->optee_image_list[0];
+	image_pa = dual32to64(curr_image->load_addr_hi,
+			      curr_image->load_addr_lo);
+	image_va = image_pa;
+	target_end_pa = image_pa + curr_image->size;
+
+	/* Now also map the memory we want to copy it to. */
+	target_pa = page_align(image_pa, DOWN);
+	target_va = target_pa;
+	target_size = page_align(target_end_pa, UP) - target_pa;
+
+	rc = mmap_add_dynamic_region(target_pa, target_va, target_size,
+				     MT_MEMORY | MT_RW | MT_SECURE);
+	if (rc != 0) {
+		mmap_remove_dynamic_region(mapped_data_va, data_map_size);
+		return rc;
+	}
+
+	INFO("Loaded OP-TEE via SMC: size %d addr 0x%" PRIx64 "\n",
+	     curr_image->size, image_va);
+
+	memcpy((void *)image_va, image_ptr, curr_image->size);
+	flush_dcache_range(target_pa, target_size);
+
+	mmap_remove_dynamic_region(mapped_data_va, data_map_size);
+	mmap_remove_dynamic_region(target_va, target_size);
+
+	/* Save the non-secure state */
+	cm_el1_sysregs_context_save(NON_SECURE);
+
+	rc = create_opteed_dt();
+	if (rc) {
+		ERROR("Failed device tree creation %d\n", rc);
+		return rc;
+	}
+	dt_addr = (uint64_t)fdt_buf;
+	flush_dcache_range(dt_addr, OPTEED_FDT_SIZE);
+
+	if (TRANSFER_LIST &&
+	    !create_smc_tl((void *)dt_addr, OPTEED_FDT_SIZE)) {
+		struct transfer_list_entry *te = NULL;
+		void *dt = NULL;
+
+		te = transfer_list_find(bl31_tl, TL_TAG_FDT);
+		dt = transfer_list_entry_data(te);
+
+		if (opteed_rw == OPTEE_AARCH64) {
+			arg0 = (uint64_t)dt;
+			arg1 = TRANSFER_LIST_HANDOFF_X1_VALUE(REGISTER_CONVENTION_VERSION);
+			arg2 = 0;
+		} else {
+			arg0 = 0;
+			arg1 = TRANSFER_LIST_HANDOFF_R1_VALUE(REGISTER_CONVENTION_VERSION);
+			arg2 = (uint64_t)dt;
+		}
+
+		arg3 = (uint64_t)bl31_tl;
+	} else {
+		/* Default handoff arguments */
+		arg2 = dt_addr;
+	}
+
+	opteed_init_optee_ep_state(&optee_ep_info,
+				   opteed_rw,
+				   image_pa,
+				   arg0,
+				   arg1,
+				   arg2,
+				   arg3,
+				   &opteed_sp_context[linear_id]);
+	if (opteed_init_with_entry_point(&optee_ep_info) == 0) {
+		rc = -EFAULT;
+	}
+
+	/* Restore non-secure state */
+	cm_el1_sysregs_context_restore(NON_SECURE);
+	cm_set_next_eret_context(NON_SECURE);
+
+	return rc;
+}
+#endif  /* OPTEE_ALLOW_SMC_LOAD */
 
 /*******************************************************************************
  * This function is responsible for handling all SMCs in the Trusted OS/App
@@ -200,13 +610,44 @@ static uintptr_t opteed_smc_handler(uint32_t smc_fid,
 	cpu_context_t *ns_cpu_context;
 	uint32_t linear_id = plat_my_core_pos();
 	optee_context_t *optee_ctx = &opteed_sp_context[linear_id];
-	uint64_t rc;
 
 	/*
 	 * Determine which security state this SMC originated from
 	 */
 
 	if (is_caller_non_secure(flags)) {
+#if OPTEE_ALLOW_SMC_LOAD
+		if (opteed_allow_load && smc_fid == NSSMC_OPTEED_CALL_UID) {
+			/* Provide the UUID of the image loading service. */
+			SMC_UUID_RET(handle, optee_image_load_uuid);
+		}
+		if (smc_fid == NSSMC_OPTEED_CALL_LOAD_IMAGE) {
+			/*
+			 * TODO: Consider wiping the code for SMC loading from
+			 * memory after it has been invoked similar to what is
+			 * done under RECLAIM_INIT, but extended to happen
+			 * later.
+			 */
+			if (!opteed_allow_load) {
+				SMC_RET1(handle, -EPERM);
+			}
+
+			opteed_allow_load = false;
+			uint64_t data_size = dual32to64(x1, x2);
+			uint64_t data_pa = dual32to64(x3, x4);
+			if (!data_size || !data_pa) {
+				/*
+				 * This is invoked when the OP-TEE image didn't
+				 * load correctly in the kernel but we want to
+				 * block off loading of it later for security
+				 * reasons.
+				 */
+				SMC_RET1(handle, -EINVAL);
+			}
+			SMC_RET1(handle, opteed_handle_smc_load(
+					data_size, data_pa));
+		}
+#endif  /* OPTEE_ALLOW_SMC_LOAD */
 		/*
 		 * This is a fresh request from the non-secure client.
 		 * The parameters are in x1 and x2. Figure out which
@@ -219,8 +660,18 @@ static uintptr_t opteed_smc_handler(uint32_t smc_fid,
 
 		/*
 		 * We are done stashing the non-secure context. Ask the
-		 * OPTEE to do the work now.
+		 * OP-TEE to do the work now. If we are loading vi an SMC,
+		 * then we also need to init this CPU context if not done
+		 * already.
 		 */
+		if (optee_vector_table == NULL) {
+			SMC_RET1(handle, -EINVAL);
+		}
+
+		if (get_optee_pstate(optee_ctx->state) ==
+		    OPTEE_PSTATE_UNKNOWN) {
+			opteed_cpu_on_finish_handler(0);
+		}
 
 		/*
 		 * Verify if there is a valid context to use, copy the
@@ -292,18 +743,9 @@ static uintptr_t opteed_smc_handler(uint32_t smc_fid,
 			 */
 			psci_register_spd_pm_hook(&opteed_pm);
 
-			/*
-			 * Register an interrupt handler for S-EL1 interrupts
-			 * when generated during code executing in the
-			 * non-secure state.
-			 */
-			flags = 0;
-			set_interrupt_rm_flag(flags, NON_SECURE);
-			rc = register_interrupt_type_handler(INTR_TYPE_S_EL1,
-						opteed_sel1_interrupt_handler,
-						flags);
-			if (rc)
-				panic();
+#if !OPTEE_ALLOW_SMC_LOAD
+			register_opteed_interrupt_handler();
+#endif
 		}
 
 		/*

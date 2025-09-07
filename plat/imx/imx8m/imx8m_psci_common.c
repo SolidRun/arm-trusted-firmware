@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2018-2023, ARM Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -13,6 +13,7 @@
 #include <lib/mmio.h>
 #include <lib/psci/psci.h>
 
+#include <dram.h>
 #include <gpc.h>
 #include <imx8m_psci.h>
 #include <plat_imx8.h>
@@ -23,6 +24,7 @@
  * reuse below ones.
  */
 #pragma weak imx_validate_power_state
+#pragma weak imx_pwr_domain_off
 #pragma weak imx_domain_suspend
 #pragma weak imx_domain_suspend_finish
 #pragma weak imx_get_sys_suspend_power_state
@@ -39,7 +41,7 @@ int imx_validate_ns_entrypoint(uintptr_t ns_entrypoint)
 int imx_pwr_domain_on(u_register_t mpidr)
 {
 	unsigned int core_id;
-	uint64_t base_addr = BL31_BASE;
+	uint64_t base_addr = BL31_START;
 
 	core_id = MPIDR_AFFLVL0_VAL(mpidr);
 
@@ -101,7 +103,7 @@ void imx_cpu_standby(plat_local_state_t cpu_state)
 
 void imx_domain_suspend(const psci_power_state_t *target_state)
 {
-	uint64_t base_addr = BL31_BASE;
+	uint64_t base_addr = BL31_START;
 	uint64_t mpidr = read_mpidr_el1();
 	unsigned int core_id = MPIDR_AFFLVL0_VAL(mpidr);
 
@@ -118,8 +120,11 @@ void imx_domain_suspend(const psci_power_state_t *target_state)
 	if (!is_local_state_run(CLUSTER_PWR_STATE(target_state)))
 		imx_set_cluster_powerdown(core_id, CLUSTER_PWR_STATE(target_state));
 
-	if (is_local_state_off(SYSTEM_PWR_STATE(target_state)))
+	if (is_local_state_off(SYSTEM_PWR_STATE(target_state))) {
 		imx_set_sys_lpm(core_id, true);
+		dram_enter_retention();
+		imx_anamix_override(true);
+	}
 }
 
 void imx_domain_suspend_finish(const psci_power_state_t *target_state)
@@ -127,8 +132,11 @@ void imx_domain_suspend_finish(const psci_power_state_t *target_state)
 	uint64_t mpidr = read_mpidr_el1();
 	unsigned int core_id = MPIDR_AFFLVL0_VAL(mpidr);
 
-	if (is_local_state_off(SYSTEM_PWR_STATE(target_state)))
+	if (is_local_state_off(SYSTEM_PWR_STATE(target_state))) {
+		imx_anamix_override(false);
+		dram_exit_retention();
 		imx_set_sys_lpm(core_id, false);
+	}
 
 	if (!is_local_state_run(CLUSTER_PWR_STATE(target_state))) {
 		imx_clear_rbc_count();
@@ -152,19 +160,45 @@ void imx_get_sys_suspend_power_state(psci_power_state_t *req_state)
 		req_state->pwr_domain_state[i] = PLAT_STOP_OFF_STATE;
 }
 
-void __dead2 imx_system_reset(void)
+static void __dead2 imx_wdog_restart(bool external_reset)
 {
 	uintptr_t wdog_base = IMX_WDOG_BASE;
 	unsigned int val;
 
-	/* WDOG_B reset */
 	val = mmio_read_16(wdog_base);
-#ifdef IMX_WDOG_B_RESET
-	val = (val & 0x00FF) | WDOG_WCR_WDZST | WDOG_WCR_WDE |
-		WDOG_WCR_WDT | WDOG_WCR_SRS;
-#else
-	val = (val & 0x00FF) | WDOG_WCR_WDZST | WDOG_WCR_SRS;
-#endif
+	/*
+	 * Common watchdog init flags, for additional details check
+	 * 6.6.4.1 Watchdog Control Register (WDOGx_WCR)
+	 *
+	 * Initial bit selection:
+	 * WDOG_WCR_WDE - Enable the watchdog.
+	 *
+	 * 0x000E mask is used to keep previous values (that could be set
+	 * in SPL) of WDBG and WDE/WDT (both are write-one once-only bits).
+	 */
+	val = (val & 0x000E) | WDOG_WCR_WDE;
+	if (external_reset) {
+		/*
+		 * To assert WDOG_B (external reset) we have
+		 * to set WDA bit 0 (already set in previous step).
+		 * SRS bits are required to be set to 1 (no effect on the
+		 * system).
+		 */
+		val |= WDOG_WCR_SRS;
+	} else {
+		/*
+		 * To assert Software Reset Signal (internal reset) we have
+		 * to set SRS bit to 0 (already set in previous step).
+		 * SRE bit is required to be set to 1 when used in
+		 * conjunction with the Software Reset Signal before
+		 * SRS asserton, otherwise SRS bit will just automatically
+		 * reset to 1.
+		 *
+		 * Also we set WDA to 1 (no effect on system).
+		 */
+		val |= WDOG_WCR_SRE | WDOG_WCR_WDA;
+	}
+
 	mmio_write_16(wdog_base, val);
 
 	mmio_write_16(wdog_base + WDOG_WSR, 0x5555);
@@ -173,10 +207,34 @@ void __dead2 imx_system_reset(void)
 		;
 }
 
+void __dead2 imx_system_reset(void)
+{
+#ifdef IMX_WDOG_B_RESET
+	imx_wdog_restart(true);
+#else
+	imx_wdog_restart(false);
+#endif
+}
+
+int imx_system_reset2(int is_vendor, int reset_type, u_register_t cookie)
+{
+	imx_wdog_restart(false);
+
+	/*
+	 * imx_wdog_restart cannot return (as it's  a __dead function),
+	 * however imx_system_reset2 has to return some value according
+	 * to PSCI v1.1 spec.
+	 */
+	return 0;
+}
+
 void __dead2 imx_system_off(void)
 {
-	mmio_write_32(IMX_SNVS_BASE + SNVS_LPCR, SNVS_LPCR_SRTC_ENV |
-			SNVS_LPCR_DP_EN | SNVS_LPCR_TOP);
+	uint32_t val;
+
+	val = mmio_read_32(IMX_SNVS_BASE + SNVS_LPCR);
+	val |= SNVS_LPCR_SRTC_ENV | SNVS_LPCR_DP_EN | SNVS_LPCR_TOP;
+	mmio_write_32(IMX_SNVS_BASE + SNVS_LPCR, val);
 
 	while (1)
 		;

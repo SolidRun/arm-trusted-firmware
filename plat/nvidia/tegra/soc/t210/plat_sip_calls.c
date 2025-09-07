@@ -1,9 +1,12 @@
 /*
  * Copyright (c) 2018, ARM Limited and Contributors. All rights reserved.
- * Copyright (c) 2020, NVIDIA Corporation. All rights reserved.
+ * Copyright (c) 2020-2023, NVIDIA Corporation. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
+
+#include <inttypes.h>
+#include <stdint.h>
 
 #include <arch.h>
 #include <arch_helpers.h>
@@ -30,7 +33,7 @@
 /*******************************************************************************
  * Tegra210 SiP SMCs
  ******************************************************************************/
-#define TEGRA_SIP_PMC_COMMANDS		U(0xC2FFFE00)
+#define TEGRA_SIP_PMC_COMMANDS		U(0xC200FE00)
 
 /*******************************************************************************
  * This function is responsible for handling all T210 SiP calls
@@ -52,9 +55,11 @@ int plat_sip_handler(uint32_t smc_fid,
 		SMC_RET1(handle, SMC_UNK);
 
 	if (smc_fid == TEGRA_SIP_PMC_COMMANDS) {
+
 		/* check the address is within PMC range and is 4byte aligned */
-		if ((x2 >= TEGRA_PMC_SIZE) || (x2 & 0x3))
+		if ((x2 >= TEGRA_PMC_SIZE) || (x2 & 0x3)) {
 			return -EINVAL;
+		}
 
 		switch (x2) {
 		/* Black listed PMC registers */
@@ -71,7 +76,7 @@ int plat_sip_handler(uint32_t smc_fid,
 		case PMC_CRYPTO_OP_0:
 		case PMC_TSC_MULT_0:
 		case PMC_STICKY_BIT:
-			ERROR("%s: error offset=0x%llx\n", __func__, x2);
+			ERROR("%s: error offset=0x%" PRIx64 "\n", __func__, x2);
 			return -EFAULT;
 		default:
 			/* Valid register */

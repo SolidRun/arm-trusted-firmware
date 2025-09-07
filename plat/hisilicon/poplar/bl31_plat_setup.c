@@ -1,12 +1,14 @@
 /*
- * Copyright (c) 2017-2019, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2017-2024, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
 #include <assert.h>
 #include <errno.h>
+#include <inttypes.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <string.h>
 
 #include <platform_def.h>
@@ -116,11 +118,6 @@ void bl31_platform_setup(void)
 	hisi_tzpc_sec_init();
 }
 
-void bl31_plat_runtime_setup(void)
-{
-	/* do nothing */
-}
-
 void bl31_plat_arch_setup(void)
 {
 	plat_configure_mmu_el3(BL31_BASE,
@@ -130,6 +127,6 @@ void bl31_plat_arch_setup(void)
 			       BL_COHERENT_RAM_BASE,
 			       BL_COHERENT_RAM_END);
 
-	INFO("Boot BL33 from 0x%lx for %llu Bytes\n",
+	INFO("Boot BL33 from 0x%lx for %" PRIu64 " Bytes\n",
 	     bl33_image_ep_info.pc, bl33_image_ep_info.args.arg2);
 }

@@ -4,9 +4,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include <inttypes.h>
+#include <stddef.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stddef.h>
 
 #include <arch_helpers.h>
 #include <lib/mmio.h>
@@ -242,7 +244,7 @@ static int abort_err(struct sd_handle *handle)
  * The function handles real data transmission on both DMA and
  * none DMA mode, In None DMA mode the data transfer starts
  * when the command is sent to the card, data has to be written
- * into the host contollers buffer at this time one block
+ * into the host controllers buffer at this time one block
  * at a time.
  * In DMA mode, the real data transfer is done by the DMA engine
  * and this functions just waits for the data transfer to complete.
@@ -316,7 +318,7 @@ int select_blk_sz(struct sd_handle *handle, uint16_t size)
 
 
 /*
- * The function initalizes the SD/SDIO/MMC/CEATA and detects
+ * The function initializes the SD/SDIO/MMC/CEATA and detects
  * the card according to the flag of detection.
  * Once this function is called, the card is put into ready state
  * so application can do data transfer to and from the card.
@@ -391,7 +393,7 @@ int init_card(struct sd_handle *handle, int detection)
 
 
 /*
- * The function handles MMC/CEATA card initalization.
+ * The function handles MMC/CEATA card initialization.
  */
 int init_mmc_card(struct sd_handle *handle)
 {
@@ -477,10 +479,11 @@ int init_mmc_card(struct sd_handle *handle)
 			handle->device->cfg.blockSize = 512;
 		}
 
-		if (handle->device->ctrl.ocr & SD_CARD_HIGH_CAPACITY)
+		if (handle->device->ctrl.ocr & SD_CARD_HIGH_CAPACITY) {
 			EMMC_TRACE("Sector addressing\n");
-		else
+		} else {
 			EMMC_TRACE("Byte addressing\n");
+		}
 
 		EMMC_TRACE("Ext_CSD_storage[162]: 0x%02X  Ext_CSD_storage[179]: 0x%02X\n",
 			   emmc_global_buf_ptr->u.Ext_CSD_storage[162],
@@ -521,7 +524,7 @@ static int xfer_data(struct sd_handle *handle,
 {
 	int rc = SD_OK;
 
-	VERBOSE("XFER: dest: 0x%llx, addr: 0x%x, size: 0x%x bytes\n",
+	VERBOSE("XFER: dest: 0x%" PRIx64 ", addr: 0x%x, size: 0x%x bytes\n",
 		(uint64_t)base, addr, length);
 
 	if ((length / handle->device->cfg.blockSize) > 1) {

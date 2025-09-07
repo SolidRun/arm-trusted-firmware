@@ -1,10 +1,8 @@
 #
-# Copyright 2021 NXP
+# Copyright 2021-2022 NXP
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
-
-DDR_DRIVERS_PATH	:= ${PLAT_DRIVERS_PATH}/ddr
 
 ifeq ($(PLAT_DDR_PHY), PHY_GEN2)
 $(eval $(call add_define, PHY_GEN2))
@@ -19,6 +17,10 @@ endif
 
 ifeq (${ERRATA_DDR_A050450}, 1)
 $(eval $(call add_define,ERRATA_DDR_A050450))
+endif
+
+ifeq (${ERRATA_DDR_A050958}, 1)
+$(eval $(call add_define,ERRATA_DDR_A050958))
 endif
 
 endif
@@ -68,12 +70,11 @@ ifeq ($(DEBUG_DDR_INPUT_CONFIG), yes)
 $(eval $(call add_define, DEBUG_DDR_INPUT_CONFIG))
 endif
 
-DDR_CNTLR_SOURCES	:= $(DDR_DRIVERS_PATH)/nxp-ddr/ddr.c \
-			   $(DDR_DRIVERS_PATH)/nxp-ddr/ddrc.c \
-			   $(DDR_DRIVERS_PATH)/nxp-ddr/dimm.c \
-			   $(DDR_DRIVERS_PATH)/nxp-ddr/regs.c \
-			   $(DDR_DRIVERS_PATH)/nxp-ddr/utility.c \
-			   $(DDR_DRIVERS_PATH)/$(PLAT_DDR_PHY_DIR)/phy.c
+DDR_CNTLR_SOURCES	:= $(PLAT_DRIVERS_PATH)/ddr/nxp-ddr/ddr.c \
+			   $(PLAT_DRIVERS_PATH)/ddr/nxp-ddr/ddrc.c \
+			   $(PLAT_DRIVERS_PATH)/ddr/nxp-ddr/dimm.c \
+			   $(PLAT_DRIVERS_PATH)/ddr/nxp-ddr/regs.c \
+			   $(PLAT_DRIVERS_PATH)/ddr/nxp-ddr/utility.c \
+			   $(PLAT_DRIVERS_PATH)/ddr/$(PLAT_DDR_PHY_DIR)/phy.c
 
-PLAT_INCLUDES		+= -I$(DDR_DRIVERS_PATH)/nxp-ddr \
-			   -I$(DDR_DRIVERS_PATH)/include
+PLAT_INCLUDES		+= -I$(PLAT_DRIVERS_INCLUDE_PATH)/ddr

@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 /*
- * Portions copyright (c) 2018-2019, ARM Limited and Contributors.
+ * Portions copyright (c) 2018-2019, Arm Limited and Contributors.
  * All rights reserved.
  */
 
@@ -29,4 +29,6 @@ long strtol(const char *nptr, char **endptr, int base);
 unsigned long strtoul(const char *nptr, char **endptr, int base);
 long long strtoll(const char *nptr, char **endptr, int base);
 unsigned long long strtoull(const char *nptr, char **endptr, int base);
+void qsort(void *, size_t, size_t,
+           int (*)(const void *, const void *));
 #endif /* STDLIB_H */

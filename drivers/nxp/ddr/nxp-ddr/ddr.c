@@ -5,6 +5,7 @@
  */
 
 #include <errno.h>
+#include <inttypes.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -268,7 +269,7 @@ static int cal_odt(const unsigned int clk,
 	unsigned int i;
 	const struct dynamic_odt *pdodt = NULL;
 
-	const static struct dynamic_odt *table[2][5] = {
+	static const struct dynamic_odt *table[2][5] = {
 		{single_S, single_D, NULL, NULL},
 		{dual_SS, dual_DD, NULL, NULL},
 	};
@@ -292,7 +293,7 @@ static int cal_odt(const unsigned int clk,
 	}
 
 	if (pdodt == NULL) {
-		ERROR("Error determing ODT.\n");
+		ERROR("Error determining ODT.\n");
 		return -EINVAL;
 	}
 
@@ -850,7 +851,7 @@ long long dram_init(struct ddr_info *priv
 	priv->ip_rev = ip_rev;
 
 #ifndef CONFIG_STATIC_DDR
-	INFO("time base %llu ms\n", time_base);
+	INFO("time base %" PRIu64 " ms\n", time_base);
 	debug("Parse DIMM SPD(s)\n");
 	valid_spd_mask = parse_spd(priv);
 
@@ -870,7 +871,7 @@ long long dram_init(struct ddr_info *priv
 #endif
 
 	time = get_timer_val(time_base);
-	INFO("Time after parsing SPD %llu ms\n", time);
+	INFO("Time after parsing SPD %" PRIu64 " ms\n", time);
 	debug("Synthesize configurations\n");
 	ret = synthesize_ctlr(priv);
 	if (ret != 0) {
@@ -911,11 +912,11 @@ long long dram_init(struct ddr_info *priv
 	}
 
 	time = get_timer_val(time_base);
-	INFO("Time before programming controller %llu ms\n", time);
+	INFO("Time before programming controller %" PRIu64 " ms\n", time);
 	debug("Program controller registers\n");
 	ret = write_ddrc_regs(priv);
 	if (ret != 0) {
-		ERROR("Programing DDRC error\n");
+		ERROR("Programming DDRC error\n");
 		return ret;
 	}
 
@@ -924,7 +925,7 @@ long long dram_init(struct ddr_info *priv
 	print_ddr_info(priv->ddr[0]);
 
 	time = get_timer_val(time_base);
-	INFO("Time used by DDR driver %llu ms\n", time);
+	INFO("Time used by DDR driver %" PRIu64 " ms\n", time);
 
 	return dram_size;
 }

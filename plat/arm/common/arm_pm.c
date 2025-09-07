@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2020, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2015-2025, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -56,6 +56,10 @@ int arm_validate_power_state(unsigned int power_state,
 	if (psci_get_pstate_id(power_state) != 0U)
 		return PSCI_E_INVALID_PARAMS;
 
+#if PSCI_OS_INIT_MODE
+	req_state->last_at_pwrlvl = psci_get_pstate_pwrlvl(power_state);
+#endif /* __PSCI_OS_INIT_MODE__ */
+
 	return PSCI_E_SUCCESS;
 }
 
@@ -79,7 +83,8 @@ int arm_validate_power_state(unsigned int power_state,
 	 *  search if the number of entries justify the additional complexity.
 	 */
 	for (i = 0; !!arm_pm_idle_states[i]; i++) {
-		if (power_state == arm_pm_idle_states[i])
+		if ((power_state & ~ARM_LAST_AT_PLVL_MASK) ==
+					arm_pm_idle_states[i])
 			break;
 	}
 
@@ -91,11 +96,14 @@ int arm_validate_power_state(unsigned int power_state,
 	state_id = psci_get_pstate_id(power_state);
 
 	/* Parse the State ID and populate the state info parameter */
-	while (state_id) {
-		req_state->pwr_domain_state[i++] = state_id &
+	for (i = ARM_PWR_LVL0; i <= PLAT_MAX_PWR_LVL; i++) {
+		req_state->pwr_domain_state[i] = state_id &
 						ARM_LOCAL_PSTATE_MASK;
 		state_id >>= ARM_LOCAL_PSTATE_WIDTH;
 	}
+#if PSCI_OS_INIT_MODE
+	req_state->last_at_pwrlvl = state_id & ARM_LOCAL_PSTATE_MASK;
+#endif /* __PSCI_OS_INIT_MODE__ */
 
 	return PSCI_E_SUCCESS;
 }
@@ -140,7 +148,7 @@ void arm_system_pwr_domain_save(void)
 	/* Assert system power domain is available on the platform */
 	assert(PLAT_MAX_PWR_LVL >= ARM_PWR_LVL2);
 
-	plat_arm_gic_save();
+	gic_save();
 
 	/*
 	 * Unregister console now so that it is not registered for a second
@@ -169,7 +177,7 @@ void arm_system_pwr_domain_resume(void)
 	/* Assert system power domain is available on the platform */
 	assert(PLAT_MAX_PWR_LVL >= ARM_PWR_LVL2);
 
-	plat_arm_gic_resume();
+	gic_resume();
 
 	plat_arm_security_setup();
 	arm_configure_sys_timer();
@@ -191,7 +199,7 @@ void plat_arm_program_trusted_mailbox(uintptr_t address)
 	 * ARM_SHARED_RAM region.
 	 */
 	assert((PLAT_ARM_TRUSTED_MAILBOX_BASE >= ARM_SHARED_RAM_BASE) &&
-		((PLAT_ARM_TRUSTED_MAILBOX_BASE + sizeof(*mailbox)) <= \
+		((PLAT_ARM_TRUSTED_MAILBOX_BASE + sizeof(*mailbox)) <=
 				(ARM_SHARED_RAM_BASE + ARM_SHARED_RAM_SIZE)));
 }
 

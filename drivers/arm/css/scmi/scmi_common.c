@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2017-2024, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -9,6 +9,7 @@
 #include <arch_helpers.h>
 #include <common/debug.h>
 #include <drivers/arm/css/scmi.h>
+#include <drivers/delay_timer.h>
 
 #include "scmi_private.h"
 
@@ -60,8 +61,10 @@ void scmi_send_sync_command(scmi_channel_t *ch)
 	dmbsy();
 
 	/* Wait for channel to be free */
-	while (!SCMI_IS_CHANNEL_FREE(mbx_mem->status))
-		;
+	while (!SCMI_IS_CHANNEL_FREE(mbx_mem->status)) {
+		if (ch->info->delay != 0)
+			udelay(ch->info->delay);
+	}
 
 	/*
 	 * Ensure that any read to the SCMI payload area is done after reading
@@ -173,12 +176,12 @@ void *scmi_init(scmi_channel_t *ch)
 
 	ret = scmi_proto_version(ch, SCMI_PWR_DMN_PROTO_ID, &version);
 	if (ret != SCMI_E_SUCCESS) {
-		WARN("SCMI power domain protocol version message failed");
+		WARN("SCMI power domain protocol version message failed\n");
 		goto error;
 	}
 
 	if (!is_scmi_version_compatible(SCMI_PWR_DMN_PROTO_VER, version)) {
-		WARN("SCMI power domain protocol version 0x%x incompatible with driver version 0x%x",
+		WARN("SCMI power domain protocol version 0x%x incompatible with driver version 0x%x\n",
 			version, SCMI_PWR_DMN_PROTO_VER);
 		goto error;
 	}
@@ -187,12 +190,12 @@ void *scmi_init(scmi_channel_t *ch)
 
 	ret = scmi_proto_version(ch, SCMI_SYS_PWR_PROTO_ID, &version);
 	if ((ret != SCMI_E_SUCCESS)) {
-		WARN("SCMI system power protocol version message failed");
+		WARN("SCMI system power protocol version message failed\n");
 		goto error;
 	}
 
 	if (!is_scmi_version_compatible(SCMI_SYS_PWR_PROTO_VER, version)) {
-		WARN("SCMI system power management protocol version 0x%x incompatible with driver version 0x%x",
+		WARN("SCMI system power management protocol version 0x%x incompatible with driver version 0x%x\n",
 			version, SCMI_SYS_PWR_PROTO_VER);
 		goto error;
 	}

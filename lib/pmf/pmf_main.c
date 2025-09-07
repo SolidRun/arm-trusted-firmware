@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2018, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2016-2018, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -17,7 +17,7 @@
 
 /*******************************************************************************
  * The 'pmf_svc_descs' array holds the PMF service descriptors exported by
- * services by placing them in the 'pmf_svc_descs' linker section.
+ * services by placing them in the '.pmf_svc_descs' linker section.
  * The 'pmf_svc_descs_indices' array holds the index of a descriptor in the
  * 'pmf_svc_descs' array. The TIF[15:10] bits in the time-stamp id are used
  * to get an index into the 'pmf_svc_descs_indices' array. This gives the
@@ -165,7 +165,7 @@ int pmf_get_timestamp_smc(unsigned int tid,
 	/* Search for registered service. */
 	svc_desc = get_service(tid);
 
-	if ((svc_desc == NULL) || (plat_core_pos_by_mpidr(mpidr) < 0)) {
+	if (svc_desc == NULL) {
 		*ts_value = 0;
 		return -EINVAL;
 	} else {

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2019-2024, ARM Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -45,7 +45,7 @@ static struct psram_data_t *psram_boot_cfg =
 
 static uint32_t cores_pd_cfg_info[PLATFORM_CORE_COUNT]
 #if USE_COHERENT_MEM
-__attribute__ ((section("tzfw_coherent_mem")))
+__attribute__ ((section(".tzfw_coherent_mem")))
 #endif
 ;
 
@@ -101,7 +101,7 @@ struct px30_sleep_ddr_data {
 
 static struct px30_sleep_ddr_data ddr_data
 #if USE_COHERENT_MEM
-__attribute__ ((section("tzfw_coherent_mem")))
+__attribute__ ((section(".tzfw_coherent_mem")))
 #endif
 ;
 
@@ -867,18 +867,6 @@ static inline void pm_pll_wait_lock(uint32_t pll_base, uint32_t pll_id)
 		ERROR("Can't wait pll:%d lock\n", pll_id);
 }
 
-static inline void pll_pwr_ctr(uint32_t pll_base, uint32_t pll_id, uint32_t pd)
-{
-	mmio_write_32(pll_base + PLL_CON(1),
-		      BITS_WITH_WMASK(1, 1U, 15));
-	if (pd)
-		mmio_write_32(pll_base + PLL_CON(1),
-			      BITS_WITH_WMASK(1, 1, 14));
-	else
-		mmio_write_32(pll_base + PLL_CON(1),
-			      BITS_WITH_WMASK(0, 1, 14));
-}
-
 static inline void pll_set_mode(uint32_t pll_id, uint32_t mode)
 {
 	uint32_t val = BITS_WITH_WMASK(mode, 0x3, PLL_MODE_SHIFT(pll_id));
@@ -1012,6 +1000,8 @@ void __dead2 rockchip_soc_soft_reset(void)
 	 * so we do not hope the core to execute valid codes.
 	 */
 	psci_power_down_wfi();
+	/* should never reach here */
+	panic();
 }
 
 void __dead2 rockchip_soc_system_off(void)
@@ -1037,6 +1027,8 @@ void __dead2 rockchip_soc_system_off(void)
 	 * so we do not hope the core to execute valid codes.
 	 */
 	psci_power_down_wfi();
+	/* should never reach here */
+	panic();
 }
 
 void rockchip_plat_mmu_el3(void)

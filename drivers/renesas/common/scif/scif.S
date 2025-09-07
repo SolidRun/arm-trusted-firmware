@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2015-2020, Renesas Electronics Corporation. All rights reserved.
+ * Copyright (c) 2015-2021, Renesas Electronics Corporation. All rights reserved.
+ * Copyright (c) 2025, Arm Limited. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -8,18 +9,13 @@
 #include <asm_macros.S>
 #include <console_macros.S>
 #include <drivers/renesas/rcar/console/console.h>
+#include <platform_def.h>
 
 #define SCIF_INTERNAL_CLK	0
 #define SCIF_EXTARNAL_CLK	1
 #define SCIF_CLK		SCIF_INTERNAL_CLK
 
-/* product register */
-#define PRR			(0xFFF00044)
-#define PRR_PRODUCT_MASK	(0x00007F00)
-#define PRR_CUT_MASK		(0x000000FF)
 #define PRR_PRODUCT_H3_VER_10	(0x00004F00)
-#define PRR_PRODUCT_E3		(0x00005700)
-#define PRR_PRODUCT_D3		(0x00005800)
 
 /* module stop */
 #define CPG_BASE		(0xE6150000)
@@ -60,7 +56,6 @@
 #endif
 
 /* mode pin */
-#define RST_MODEMR		(0xE6160060)
 #define MODEMR_MD12		(0x00001000)
 
 #define SCSMR_CA_MASK		(1 << 7)
@@ -79,7 +74,7 @@
 					 SCSMR_STOP_1 +		\
 					 SCSMR_CKS_DIV1)
 #define SCBRR_115200BPS		(17)
-#define SCBRR_115200BPSON	(16)
+#define SCBRR_115200BPS_D3_SSCG	(16)
 #define SCBRR_115200BPS_E3_SSCG	(15)
 #define SCBRR_230400BPS		(8)
 
@@ -216,26 +211,38 @@ func console_rcar_init
 	and	w1, w1, #PRR_PRODUCT_MASK
 	mov	w2, #PRR_PRODUCT_D3
 	cmp	w1, w2
-	beq	4f
+	beq	5f
 	and	w1, w1, #PRR_PRODUCT_MASK
 	mov	w2, #PRR_PRODUCT_E3
 	cmp	w1, w2
-	bne	5f
+	bne	4f
 
+	/* When SSCG(MD12) on (E3) */
 	ldr	x1, =RST_MODEMR
 	ldr	w1, [x1]
 	and	w1, w1, #MODEMR_MD12
 	mov	w2, #MODEMR_MD12
 	cmp	w1, w2
-	bne	5f
+	bne	4f
 
+	/* When SSCG(MD12) on (E3) */
 	mov	w1, #SCBRR_115200BPS_E3_SSCG
 	b	2f
 5:
-	mov	w1, #SCBRR_115200BPS
+	/* In case of D3 */
+	ldr	x1, =RST_MODEMR
+	ldr	w1, [x1]
+	and	w1, w1, #MODEMR_MD12
+	mov	w2, #MODEMR_MD12
+	cmp	w1, w2
+	bne	4f
+
+	/* When SSCG(MD12) on (D3) */
+	mov	w1, #SCBRR_115200BPS_D3_SSCG
 	b	2f
 4:
-	mov	w1, #SCBRR_115200BPSON
+	/* In case of H3/M3/M3N or when SSCG(MD12) is off in E3/D3 */
+	mov	w1, #SCBRR_115200BPS
 	b	2f
 3:
 	mov	w1, #SCBRR_230400BPS

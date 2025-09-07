@@ -33,6 +33,9 @@
  */
 #define SCP_FIRMWARE_MAGIC		0xb4400012
 
+#define PLAT_LOCAL_PSTATE_WIDTH		U(4)
+#define PLAT_LOCAL_PSTATE_MASK		((U(1) << PLAT_LOCAL_PSTATE_WIDTH) - 1)
+
 #define CPU_PWR_LVL			MPIDR_AFFLVL0
 #define CLUSTER_PWR_LVL			MPIDR_AFFLVL1
 #define SYSTEM_PWR_LVL			MPIDR_AFFLVL2
@@ -43,17 +46,6 @@
 	((state)->pwr_domain_state[CLUSTER_PWR_LVL])
 #define SYSTEM_PWR_STATE(state) \
 	((state)->pwr_domain_state[SYSTEM_PWR_LVL])
-
-static inline scpi_power_state_t scpi_map_state(plat_local_state_t psci_state)
-{
-	if (is_local_state_run(psci_state)) {
-		return scpi_power_on;
-	}
-	if (is_local_state_retn(psci_state)) {
-		return scpi_power_retention;
-	}
-	return scpi_power_off;
-}
 
 static void sunxi_cpu_standby(plat_local_state_t cpu_state)
 {
@@ -87,9 +79,9 @@ static void sunxi_pwr_domain_off(const psci_power_state_t *target_state)
 	}
 
 	scpi_set_css_power_state(read_mpidr(),
-				 scpi_map_state(cpu_pwr_state),
-				 scpi_map_state(cluster_pwr_state),
-				 scpi_map_state(system_pwr_state));
+				 cpu_pwr_state,
+				 cluster_pwr_state,
+				 system_pwr_state);
 }
 
 static void sunxi_pwr_domain_on_finish(const psci_power_state_t *target_state)
@@ -116,6 +108,8 @@ static void __dead2 sunxi_system_off(void)
 	}
 
 	psci_power_down_wfi();
+	/* should never reach here */
+	panic();
 }
 
 static void __dead2 sunxi_system_reset(void)
@@ -131,13 +125,45 @@ static void __dead2 sunxi_system_reset(void)
 	}
 
 	psci_power_down_wfi();
+	/* should never reach here */
+	panic();
+}
+
+static int sunxi_system_reset2(int is_vendor, int reset_type, u_register_t cookie)
+{
+	uint32_t ret;
+
+	if (is_vendor || (reset_type != PSCI_RESET2_SYSTEM_WARM_RESET))
+		return PSCI_E_NOT_SUPPORTED;
+
+	gicv2_cpuif_disable();
+
+	/* Send the system reset request to the SCP. */
+	ret = scpi_sys_power_state(scpi_system_reset);
+	if (ret != SCP_OK) {
+		ERROR("PSCI: SCPI %s failed: %d\n", "reset", ret);
+		return PSCI_E_INVALID_PARAMS;
+	}
+
+	psci_power_down_wfi();
+	/* should never reach here */
+	panic();
+
+	/*
+	 * Should not reach here.
+	 * However sunxi_system_reset2 has to return some value
+	 * according to PSCI v1.1 spec.
+	 */
+	return PSCI_E_SUCCESS;
 }
 
 static int sunxi_validate_power_state(unsigned int power_state,
 				      psci_power_state_t *req_state)
 {
 	unsigned int power_level = psci_get_pstate_pwrlvl(power_state);
+	unsigned int state_id = psci_get_pstate_id(power_state);
 	unsigned int type = psci_get_pstate_type(power_state);
+	unsigned int i;
 
 	assert(req_state != NULL);
 
@@ -146,28 +172,19 @@ static int sunxi_validate_power_state(unsigned int power_state,
 	}
 
 	if (type == PSTATE_TYPE_STANDBY) {
-		/* Only one retention power state is supported. */
-		if (psci_get_pstate_id(power_state) > 0) {
-			return PSCI_E_INVALID_PARAMS;
-		}
-		/* The SoC cannot be suspended without losing state */
-		if (power_level == SYSTEM_PWR_LVL) {
-			return PSCI_E_INVALID_PARAMS;
-		}
-		for (unsigned int i = 0; i <= power_level; ++i) {
-			req_state->pwr_domain_state[i] = PLAT_MAX_RET_STATE;
-		}
-	} else {
-		/* Only one off power state is supported. */
-		if (psci_get_pstate_id(power_state) > 0) {
-			return PSCI_E_INVALID_PARAMS;
-		}
-		for (unsigned int i = 0; i <= power_level; ++i) {
-			req_state->pwr_domain_state[i] = PLAT_MAX_OFF_STATE;
-		}
+		return PSCI_E_INVALID_PARAMS;
 	}
+
+	/* Pass through the requested PSCI state as-is. */
+	for (i = 0; i <= power_level; ++i) {
+		unsigned int local_pstate = state_id & PLAT_LOCAL_PSTATE_MASK;
+
+		req_state->pwr_domain_state[i] = local_pstate;
+		state_id >>= PLAT_LOCAL_PSTATE_WIDTH;
+	}
+
 	/* Higher power domain levels should all remain running */
-	for (unsigned int i = power_level + 1; i <= PLAT_MAX_PWR_LVL; ++i) {
+	for (; i <= PLAT_MAX_PWR_LVL; ++i) {
 		req_state->pwr_domain_state[i] = PSCI_LOCAL_STATE_RUN;
 	}
 
@@ -192,6 +209,7 @@ static const plat_psci_ops_t sunxi_scpi_psci_ops = {
 	.pwr_domain_suspend_finish	= sunxi_pwr_domain_on_finish,
 	.system_off			= sunxi_system_off,
 	.system_reset			= sunxi_system_reset,
+	.system_reset2			= sunxi_system_reset2,
 	.validate_power_state		= sunxi_validate_power_state,
 	.validate_ns_entrypoint		= sunxi_validate_ns_entrypoint,
 	.get_sys_suspend_power_state	= sunxi_get_sys_suspend_power_state,
@@ -212,7 +230,6 @@ int sunxi_set_scpi_psci_ops(const plat_psci_ops_t **psci_ops)
 		uint32_t offset = SUNXI_SCP_BASE - vector;
 
 		mmio_write_32(vector, offset >> 2);
-		clean_dcache_range(vector, sizeof(uint32_t));
 	}
 
 	/* Take the SCP out of reset. */

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2019, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2016-2019, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -27,10 +27,14 @@
 #else
 # define  U_(_x)	(_x##U)
 # define   U(_x)	U_(_x)
-# define  UL(_x)	(_x##UL)
-# define ULL(_x)	(_x##ULL)
-# define   L(_x)	(_x##L)
-# define  LL(_x)	(_x##LL)
+# define  UL_(_x)	(_x##UL)
+# define  UL(_x)	UL_(_x)
+# define  ULL_(_x)	(_x##ULL)
+# define  ULL(_x)	ULL_(_x)
+# define  L_(_x)	(_x##L)
+# define  L(_x)	L_(_x)
+# define  LL_(_x)	(_x##LL)
+# define  LL(_x)	LL_(_x)
 
 #endif
 

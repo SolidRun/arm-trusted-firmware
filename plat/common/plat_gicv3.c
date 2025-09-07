@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2015-2018, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2015-2024, Arm Limited and Contributors. All rights reserved.
+ * Portions copyright (c) 2021-2022, ProvenRun S.A.S. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -9,6 +10,7 @@
 
 #include <arch_helpers.h>
 #include <common/bl_common.h>
+#include <common/debug.h>
 #include <bl31/interrupt_mgmt.h>
 #include <drivers/arm/gic_common.h>
 #include <drivers/arm/gicv3.h>
@@ -39,13 +41,11 @@
 #pragma weak plat_ic_set_interrupt_priority
 #pragma weak plat_ic_set_interrupt_type
 #pragma weak plat_ic_raise_el3_sgi
+#pragma weak plat_ic_raise_ns_sgi
+#pragma weak plat_ic_raise_s_el1_sgi
 #pragma weak plat_ic_set_spi_routing
 #pragma weak plat_ic_set_interrupt_pending
 #pragma weak plat_ic_clear_interrupt_pending
-
-CASSERT((INTR_TYPE_S_EL1 == INTR_GROUP1S) &&
-	(INTR_TYPE_NS == INTR_GROUP1NS) &&
-	(INTR_TYPE_EL3 == INTR_GROUP0), assert_interrupt_type_mismatch);
 
 /*
  * This function returns the highest priority pending interrupt at
@@ -112,12 +112,26 @@ uint32_t plat_ic_acknowledge_interrupt(void)
 
 /*
  * This function returns the type of the interrupt `id`, depending on how
- * the interrupt has been configured in the interrupt controller
+ * the interrupt has been configured in the interrupt controller.
  */
 uint32_t plat_ic_get_interrupt_type(uint32_t id)
 {
+	unsigned int group;
+
 	assert(IS_IN_EL3());
-	return gicv3_get_interrupt_type(id, plat_my_core_pos());
+	group = gicv3_get_interrupt_group(id, plat_my_core_pos());
+
+	switch (group) {
+	case INTR_GROUP0:
+		return INTR_TYPE_EL3;
+	case INTR_GROUP1S:
+		return INTR_TYPE_S_EL1;
+	case INTR_GROUP1NS:
+		return INTR_TYPE_NS;
+	default:
+		assert(false); /* Unreachable */
+		return INTR_TYPE_EL3;
+	}
 }
 
 /*
@@ -221,16 +235,37 @@ void plat_ic_set_interrupt_priority(unsigned int id, unsigned int priority)
 	gicv3_set_interrupt_priority(id, plat_my_core_pos(), priority);
 }
 
-int plat_ic_has_interrupt_type(unsigned int type)
+bool plat_ic_has_interrupt_type(unsigned int type)
 {
-	assert((type == INTR_TYPE_EL3) || (type == INTR_TYPE_S_EL1) ||
-			(type == INTR_TYPE_NS));
-	return 1;
+	if ((type == INTR_TYPE_EL3) || (type == INTR_TYPE_S_EL1) ||
+			(type == INTR_TYPE_NS)) {
+		return true;
+	}
+
+	return false;
 }
 
 void plat_ic_set_interrupt_type(unsigned int id, unsigned int type)
 {
-	gicv3_set_interrupt_type(id, plat_my_core_pos(), type);
+	unsigned int group;
+
+	switch (type) {
+	case INTR_TYPE_EL3:
+		group = INTR_GROUP0;
+		break;
+	case INTR_TYPE_S_EL1:
+		group = INTR_GROUP1S;
+		break;
+	case INTR_TYPE_NS:
+		group = INTR_GROUP1NS;
+		break;
+	default:
+		assert(false); /* Unreachable */
+		group = INTR_GROUP0;
+		break;
+	}
+
+	gicv3_set_interrupt_group(id, plat_my_core_pos(), group);
 }
 
 void plat_ic_raise_el3_sgi(int sgi_num, u_register_t target)
@@ -242,7 +277,31 @@ void plat_ic_raise_el3_sgi(int sgi_num, u_register_t target)
 	assert(plat_ic_get_interrupt_type((unsigned int)sgi_num) ==
 					  INTR_TYPE_EL3);
 
-	gicv3_raise_secure_g0_sgi((unsigned int)sgi_num, target);
+	gicv3_raise_sgi((unsigned int)sgi_num, GICV3_G0, target);
+}
+
+void plat_ic_raise_ns_sgi(int sgi_num, u_register_t target)
+{
+	/* Target must be a valid MPIDR in the system */
+	assert(plat_core_pos_by_mpidr(target) >= 0);
+
+	/* Verify that this is a non-secure SGI */
+	assert(plat_ic_get_interrupt_type((unsigned int)sgi_num) ==
+					  INTR_TYPE_NS);
+
+	gicv3_raise_sgi((unsigned int)sgi_num, GICV3_G1NS, target);
+}
+
+void plat_ic_raise_s_el1_sgi(int sgi_num, u_register_t target)
+{
+	/* Target must be a valid MPIDR in the system */
+	assert(plat_core_pos_by_mpidr(target) >= 0);
+
+	/* Verify that this is a secure EL1 SGI */
+	assert(plat_ic_get_interrupt_type((unsigned int)sgi_num) ==
+					  INTR_TYPE_S_EL1);
+
+	gicv3_raise_sgi((unsigned int)sgi_num, GICV3_G1S, target);
 }
 
 void plat_ic_set_spi_routing(unsigned int id, unsigned int routing_mode,
@@ -283,6 +342,11 @@ void plat_ic_clear_interrupt_pending(unsigned int id)
 unsigned int plat_ic_set_priority_mask(unsigned int mask)
 {
 	return gicv3_set_pmr(mask);
+}
+
+unsigned int plat_ic_deactivate_priority(unsigned int mask)
+{
+	return gicv3_deactivate_priority(mask);
 }
 
 unsigned int plat_ic_get_interrupt_id(unsigned int raw)

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014-2020, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2014-2020, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -10,12 +10,23 @@
 #include <plat/arm/common/smccc_def.h>
 #include <plat/common/common_def.h>
 
+#define ZYNQMP_CONSOLE_ID_none		0
 #define ZYNQMP_CONSOLE_ID_cadence	1
 #define ZYNQMP_CONSOLE_ID_cadence0	1
 #define ZYNQMP_CONSOLE_ID_cadence1	2
 #define ZYNQMP_CONSOLE_ID_dcc		3
+#define ZYNQMP_CONSOLE_ID_dtb		4
 
-#define ZYNQMP_CONSOLE_IS(con)	(ZYNQMP_CONSOLE_ID_ ## con == ZYNQMP_CONSOLE)
+#define CONSOLE_IS(con)	(ZYNQMP_CONSOLE_ID_ ## con == ZYNQMP_CONSOLE)
+
+/* Runtime console */
+#define RT_CONSOLE_ID_cadence	1
+#define RT_CONSOLE_ID_cadence0	1
+#define RT_CONSOLE_ID_cadence1	2
+#define RT_CONSOLE_ID_dcc	3
+#define RT_CONSOLE_ID_dtb	4
+
+#define RT_CONSOLE_IS(con)	(RT_CONSOLE_ID_ ## con == CONSOLE_RUNTIME)
 
 /* Default counter frequency */
 #define ZYNQMP_DEFAULT_COUNTER_FREQ	0U
@@ -49,9 +60,9 @@
 
 /* CRL registers and bitfields */
 #define CRL_APB_BASE			U(0xFF5E0000)
-#define CRL_APB_BOOT_MODE_USER		(CRL_APB_BASE + 0x200)
-#define CRL_APB_RESET_CTRL		(CRL_APB_BASE + 0x218)
-#define CRL_APB_RST_LPD_TOP		(CRL_APB_BASE + 0x23C)
+#define CRL_APB_BOOT_MODE_USER		(CRL_APB_BASE + U(0x200))
+#define CRL_APB_RESET_CTRL		(CRL_APB_BASE + U(0x218))
+#define CRL_APB_RST_LPD_TOP		(CRL_APB_BASE + U(0x23C))
 #define CRL_APB_BOOT_PIN_CTRL		(CRL_APB_BASE + U(0x250))
 #define CRL_APB_CLK_BASE		U(0xFF5E0020)
 
@@ -64,21 +75,18 @@
 #define CRL_APB_BOOT_PIN_MASK		(U(0xf0f) << 0)
 #define CRL_APB_BOOT_DRIVE_PIN_1_SHIFT	U(9)
 #define CRL_APB_BOOT_ENABLE_PIN_1_SHIFT	U(1)
-#define CRL_APB_BOOT_ENABLE_PIN_1	(U(0x1) << \
-					CRL_APB_BOOT_ENABLE_PIN_1_SHIFT)
-#define CRL_APB_BOOT_DRIVE_PIN_1	(U(0x1) << \
-					CRL_APB_BOOT_DRIVE_PIN_1_SHIFT)
+#define CRL_APB_BOOT_ENABLE_PIN_1	(U(0x1) << CRL_APB_BOOT_ENABLE_PIN_1_SHIFT)
+#define CRL_APB_BOOT_DRIVE_PIN_1	(U(0x1) << CRL_APB_BOOT_DRIVE_PIN_1_SHIFT)
 #define ZYNQMP_BOOTMODE_JTAG		U(0)
-#define ZYNQMP_ULPI_RESET_VAL_HIGH	(CRL_APB_BOOT_ENABLE_PIN_1 | \
-					 CRL_APB_BOOT_DRIVE_PIN_1)
+#define ZYNQMP_ULPI_RESET_VAL_HIGH	(CRL_APB_BOOT_ENABLE_PIN_1 | CRL_APB_BOOT_DRIVE_PIN_1)
 #define ZYNQMP_ULPI_RESET_VAL_LOW	CRL_APB_BOOT_ENABLE_PIN_1
 
 /* system counter registers and bitfields */
-#define IOU_SCNTRS_BASE			0xFF260000
-#define IOU_SCNTRS_BASEFREQ		(IOU_SCNTRS_BASE + 0x20)
+#define IOU_SCNTRS_BASE			U(0xFF260000)
+#define IOU_SCNTRS_BASEFREQ		(IOU_SCNTRS_BASE + U(0x20))
 
 /* APU registers and bitfields */
-#define APU_BASE		0xFD5C0000
+#define APU_BASE		U(0xFD5C0000)
 #define APU_CONFIG_0		(APU_BASE + 0x20)
 #define APU_RVBAR_L_0		(APU_BASE + 0x40)
 #define APU_RVBAR_H_0		(APU_BASE + 0x44)
@@ -91,35 +99,35 @@
 #define APU_3_PWRCTL_CPUPWRDWNREQ_MASK		8
 
 /* PMU registers and bitfields */
-#define PMU_GLOBAL_BASE			0xFFD80000
+#define PMU_GLOBAL_BASE			U(0xFFD80000)
 #define PMU_GLOBAL_CNTRL		(PMU_GLOBAL_BASE + 0)
-#define PMU_GLOBAL_GEN_STORAGE6		(PMU_GLOBAL_BASE + 0x48)
-#define PMU_GLOBAL_REQ_PWRUP_STATUS	(PMU_GLOBAL_BASE + 0x110)
-#define PMU_GLOBAL_REQ_PWRUP_EN		(PMU_GLOBAL_BASE + 0x118)
-#define PMU_GLOBAL_REQ_PWRUP_DIS	(PMU_GLOBAL_BASE + 0x11c)
-#define PMU_GLOBAL_REQ_PWRUP_TRIG	(PMU_GLOBAL_BASE + 0x120)
+#define PMU_GLOBAL_GEN_STORAGE6		(PMU_GLOBAL_BASE + U(0x48))
+#define PMU_GLOBAL_REQ_PWRUP_STATUS	(PMU_GLOBAL_BASE + U(0x110))
+#define PMU_GLOBAL_REQ_PWRUP_EN		(PMU_GLOBAL_BASE + U(0x118))
+#define PMU_GLOBAL_REQ_PWRUP_DIS	(PMU_GLOBAL_BASE + U(0x11c))
+#define PMU_GLOBAL_REQ_PWRUP_TRIG	(PMU_GLOBAL_BASE + U(0x120))
 
 #define PMU_GLOBAL_CNTRL_FW_IS_PRESENT	(1 << 4)
 
 /*******************************************************************************
  * CCI-400 related constants
  ******************************************************************************/
-#define PLAT_ARM_CCI_BASE		0xFD6E0000
+#define PLAT_ARM_CCI_BASE		U(0xFD6E0000)
 #define PLAT_ARM_CCI_CLUSTER0_SL_IFACE_IX	3
 #define PLAT_ARM_CCI_CLUSTER1_SL_IFACE_IX	4
 
 /*******************************************************************************
  * GIC-400 & interrupt handling related constants
  ******************************************************************************/
-#define BASE_GICD_BASE		0xF9010000
-#define BASE_GICC_BASE		0xF9020000
-#define BASE_GICH_BASE		0xF9040000
-#define BASE_GICV_BASE		0xF9060000
+#define BASE_GICD_BASE		U(0xF9010000)
+#define BASE_GICC_BASE		U(0xF9020000)
+#define BASE_GICH_BASE		U(0xF9040000)
+#define BASE_GICV_BASE		U(0xF9060000)
 
 #if ZYNQMP_WDT_RESTART
 #define IRQ_SEC_IPI_APU		67
 #define IRQ_TTC3_1		77
-#define TTC3_BASE_ADDR		0xFF140000
+#define TTC3_BASE_ADDR		U(0xFF140000)
 #define TTC3_INTR_REGISTER_1	(TTC3_BASE_ADDR + 0x54)
 #define TTC3_INTR_ENABLE_1	(TTC3_BASE_ADDR + 0x60)
 #endif
@@ -135,73 +143,89 @@
 #define ARM_IRQ_SEC_SGI_6		14
 #define ARM_IRQ_SEC_SGI_7		15
 
-#define MAX_INTR_EL3			128
+/* number of interrupt handlers. increase as required */
+#define MAX_INTR_EL3			2
 
 /*******************************************************************************
  * UART related constants
  ******************************************************************************/
-#define ZYNQMP_UART0_BASE		0xFF000000
-#define ZYNQMP_UART1_BASE		0xFF010000
+#define ZYNQMP_UART0_BASE		U(0xFF000000)
+#define ZYNQMP_UART1_BASE		U(0xFF010000)
 
-#if ZYNQMP_CONSOLE_IS(cadence) || ZYNQMP_CONSOLE_IS(dcc)
-# define ZYNQMP_UART_BASE	ZYNQMP_UART0_BASE
-#elif ZYNQMP_CONSOLE_IS(cadence1)
-# define ZYNQMP_UART_BASE	ZYNQMP_UART1_BASE
+/* Boot console */
+#if CONSOLE_IS(cadence) || CONSOLE_IS(dtb)
+# define UART_BASE	ZYNQMP_UART0_BASE
+# define UART_TYPE	CONSOLE_CDNS
+#elif CONSOLE_IS(cadence1)
+# define UART_BASE	ZYNQMP_UART1_BASE
+# define UART_TYPE	CONSOLE_CDNS
+#elif CONSOLE_IS(dcc)
+# define UART_BASE	0x0
+# define UART_TYPE	CONSOLE_DCC
+#elif CONSOLE_IS(none)
+# define UART_TYPE	CONSOLE_NONE
 #else
 # error "invalid ZYNQMP_CONSOLE"
 #endif
 
-#define ZYNQMP_CRASH_UART_BASE		ZYNQMP_UART_BASE
-/* impossible to call C routine how it is done now - hardcode any value */
-#define ZYNQMP_CRASH_UART_CLK_IN_HZ	100000000 /* FIXME */
+/* Runtime console */
+#if defined(CONSOLE_RUNTIME)
+#if RT_CONSOLE_IS(cadence) || RT_CONSOLE_IS(dtb)
+# define RT_UART_BASE	ZYNQMP_UART0_BASE
+# define RT_UART_TYPE	CONSOLE_CDNS
+#elif RT_CONSOLE_IS(cadence1)
+# define RT_UART_BASE	ZYNQMP_UART1_BASE
+# define RT_UART_TYPE	CONSOLE_CDNS
+#elif RT_CONSOLE_IS(dcc)
+# define RT_UART_BASE	0x0
+# define RT_UART_TYPE	CONSOLE_DCC
+#else
+# error "invalid CONSOLE_RUNTIME"
+#endif
+#endif
+
 /* Must be non zero */
-#define ZYNQMP_UART_BAUDRATE		115200
+#define UART_BAUDRATE		115200
 
 /* Silicon version detection */
-#define ZYNQMP_SILICON_VER_MASK		0xF000
+#define ZYNQMP_SILICON_VER_MASK		U(0xF000)
 #define ZYNQMP_SILICON_VER_SHIFT	12
 #define ZYNQMP_CSU_VERSION_SILICON	0
-#define ZYNQMP_CSU_VERSION_QEMU		3
+#define ZYNQMP_CSU_VERSION_QEMU		U(3)
 
-#define ZYNQMP_RTL_VER_MASK		0xFF0
+#define ZYNQMP_RTL_VER_MASK		0xFF0U
 #define ZYNQMP_RTL_VER_SHIFT		4
 
-#define ZYNQMP_PS_VER_MASK		0xF
+#define ZYNQMP_PS_VER_MASK		0xFU
 #define ZYNQMP_PS_VER_SHIFT		0
 
-#define ZYNQMP_CSU_BASEADDR		0xFFCA0000
-#define ZYNQMP_CSU_IDCODE_OFFSET	0x40
+#define ZYNQMP_CSU_BASEADDR		U(0xFFCA0000)
+#define ZYNQMP_CSU_IDCODE_OFFSET	U(0x40)
 
-#define ZYNQMP_CSU_IDCODE_XILINX_ID_SHIFT	0
-#define ZYNQMP_CSU_IDCODE_XILINX_ID_MASK	(0xFFF << \
-					ZYNQMP_CSU_IDCODE_XILINX_ID_SHIFT)
-#define ZYNQMP_CSU_IDCODE_XILINX_ID		0x093
+#define ZYNQMP_CSU_IDCODE_XILINX_ID_SHIFT	U(0)
+#define ZYNQMP_CSU_IDCODE_XILINX_ID_MASK	(U(0xFFF) << ZYNQMP_CSU_IDCODE_XILINX_ID_SHIFT)
+#define ZYNQMP_CSU_IDCODE_XILINX_ID		U(0x093)
 
-#define ZYNQMP_CSU_IDCODE_SVD_SHIFT		12
-#define ZYNQMP_CSU_IDCODE_SVD_MASK		(0x7 << \
-						 ZYNQMP_CSU_IDCODE_SVD_SHIFT)
-#define ZYNQMP_CSU_IDCODE_DEVICE_CODE_SHIFT	15
-#define ZYNQMP_CSU_IDCODE_DEVICE_CODE_MASK	(0xF << \
-					ZYNQMP_CSU_IDCODE_DEVICE_CODE_SHIFT)
-#define ZYNQMP_CSU_IDCODE_SUB_FAMILY_SHIFT	19
-#define ZYNQMP_CSU_IDCODE_SUB_FAMILY_MASK	(0x3 << \
-					ZYNQMP_CSU_IDCODE_SUB_FAMILY_SHIFT)
-#define ZYNQMP_CSU_IDCODE_FAMILY_SHIFT		21
-#define ZYNQMP_CSU_IDCODE_FAMILY_MASK		(0x7F << \
-					ZYNQMP_CSU_IDCODE_FAMILY_SHIFT)
-#define ZYNQMP_CSU_IDCODE_FAMILY		0x23
+#define ZYNQMP_CSU_IDCODE_SVD_SHIFT		U(12)
+#define ZYNQMP_CSU_IDCODE_SVD_MASK		(0x7U << ZYNQMP_CSU_IDCODE_SVD_SHIFT)
+#define ZYNQMP_CSU_IDCODE_DEVICE_CODE_SHIFT	U(15)
+#define ZYNQMP_CSU_IDCODE_DEVICE_CODE_MASK	(U(0xF) << ZYNQMP_CSU_IDCODE_DEVICE_CODE_SHIFT)
+#define ZYNQMP_CSU_IDCODE_SUB_FAMILY_SHIFT	U(19)
+#define ZYNQMP_CSU_IDCODE_SUB_FAMILY_MASK	(U(0x3) << ZYNQMP_CSU_IDCODE_SUB_FAMILY_SHIFT)
+#define ZYNQMP_CSU_IDCODE_FAMILY_SHIFT		U(21)
+#define ZYNQMP_CSU_IDCODE_FAMILY_MASK		(U(0x7F) << ZYNQMP_CSU_IDCODE_FAMILY_SHIFT)
+#define ZYNQMP_CSU_IDCODE_FAMILY		U(0x23)
 
-#define ZYNQMP_CSU_IDCODE_REVISION_SHIFT	28
-#define ZYNQMP_CSU_IDCODE_REVISION_MASK		(0xF << \
-					ZYNQMP_CSU_IDCODE_REVISION_SHIFT)
-#define ZYNQMP_CSU_IDCODE_REVISION		0
+#define ZYNQMP_CSU_IDCODE_REVISION_SHIFT	U(28)
+#define ZYNQMP_CSU_IDCODE_REVISION_MASK		(U(0xF) << ZYNQMP_CSU_IDCODE_REVISION_SHIFT)
+#define ZYNQMP_CSU_IDCODE_REVISION		U(0)
 
-#define ZYNQMP_CSU_VERSION_OFFSET	0x44
+#define ZYNQMP_CSU_VERSION_OFFSET	U(0x44)
 
 /* Efuse */
-#define EFUSE_BASEADDR		0xFFCC0000
+#define EFUSE_BASEADDR		U(0xFFCC0000)
 #define EFUSE_IPDISABLE_OFFSET	0x1018
-#define EFUSE_IPDISABLE_VERSION	0x1FFU
+#define EFUSE_IPDISABLE_VERSION	U(0x1FF)
 #define ZYNQMP_EFUSE_IPDISABLE_SHIFT	20
 
 /* Access control register defines */
@@ -222,20 +246,6 @@
 /* Tap delay bypass */
 #define IOU_TAPDLY_BYPASS			U(0XFF180390)
 #define TAP_DELAY_MASK				U(0x7)
-
-/* SGMII mode */
-#define IOU_GEM_CTRL				U(0xFF180360)
-#define IOU_GEM_CLK_CTRL			U(0xFF180308)
-#define SGMII_SD_MASK				U(0x3)
-#define SGMII_SD_OFFSET				U(2)
-#define SGMII_PCS_SD_0				U(0x0)
-#define SGMII_PCS_SD_1				U(0x1)
-#define SGMII_PCS_SD_PHY			U(0x2)
-#define GEM_SGMII_MASK				U(0x4)
-#define GEM_CLK_CTRL_MASK			U(0xF)
-#define GEM_CLK_CTRL_OFFSET			U(5)
-#define GEM_RX_SRC_SEL_GTR			U(0x1)
-#define GEM_SGMII_MODE				U(0x4)
 
 /* SD DLL reset */
 #define ZYNQMP_SD_DLL_CTRL			U(0xFF180358)
@@ -337,11 +347,11 @@
 #define IOU_SLCR_WDT_CLK_SEL		(IOU_SLCR_BASEADDR + 0x300)
 
 /* Global general storage register base address */
-#define GGS_BASEADDR		(0xFFD80030U)
+#define GGS_BASEADDR		U(0xFFD80030)
 #define GGS_NUM_REGS		U(4)
 
 /* Persistent global general storage register base address */
-#define PGGS_BASEADDR		(0xFFD80050U)
+#define PGGS_BASEADDR		U(0xFFD80050)
 #define PGGS_NUM_REGS		U(4)
 
 /* PMU GGS4 register 4 is used for warm restart boot health status */
@@ -350,16 +360,16 @@
 #define PM_BOOT_HEALTH_STATUS_MASK		U(0x01)
 /* WDT restart scope shift and mask */
 #define RESTART_SCOPE_SHIFT			(3)
-#define RESTART_SCOPE_MASK			(0x3U << RESTART_SCOPE_SHIFT)
+#define RESTART_SCOPE_MASK			(U(0x3) << RESTART_SCOPE_SHIFT)
 
-/*AFI registers */
+/* AFI registers */
 #define  AFIFM6_WRCTRL		U(13)
 #define  FABRIC_WIDTH		U(3)
 
 /* CSUDMA Module Base Address*/
-#define CSUDMA_BASE		0xFFC80000
+#define CSUDMA_BASE		U(0xFFC80000)
 
 /* RSA-CORE Module Base Address*/
-#define RSA_CORE_BASE		0xFFCE0000
+#define RSA_CORE_BASE		U(0xFFCE0000)
 
 #endif /* ZYNQMP_DEF_H */

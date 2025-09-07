@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2021, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2015-2023, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -20,7 +20,8 @@ enum ext_type_e {
 /* NV-Counter types */
 enum nvctr_type_e {
 	NVCTR_TYPE_TFW,
-	NVCTR_TYPE_NTFW
+	NVCTR_TYPE_NTFW,
+	NVCTR_TYPE_CCAFW
 };
 
 /*
@@ -72,6 +73,7 @@ X509_EXTENSION *ext_new_hash(int nid, int crit, const EVP_MD *md,
 		unsigned char *buf, size_t len);
 X509_EXTENSION *ext_new_nvcounter(int nid, int crit, int value);
 X509_EXTENSION *ext_new_key(int nid, int crit, EVP_PKEY *k);
+void ext_cleanup(void);
 
 /* Macro to register the extensions used in the CoT */
 #define REGISTER_EXTENSIONS(_ext) \

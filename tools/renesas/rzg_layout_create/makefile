@@ -1,8 +1,15 @@
 #
+# Copyright (c) 2024, Arm Limited and Contributors. All rights reserved.
 # Copyright (c) 2020, Renesas Electronics Corporation. All rights reserved.
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
+
+toolchains := aarch64
+
+include ../../../make_helpers/build-rules.mk
+include ../../../make_helpers/common.mk
+include ../../../make_helpers/toolchain.mk
 
 ###################################################
 # makefile
@@ -62,17 +69,10 @@ $(eval $(call add_define,RCAR_VMA_ADJUST_ADDR))
 ###################################################
 
 #c compiler
-CC = $(CROSS_COMPILE)gcc
 CFLAGS += ${DEFINES}
 CFLAGS += -nostdinc \
 	  -I../../../include/lib/libc \
 	  -I../../../include/lib/libc/aarch64
-
-#Linker
-LD = $(CROSS_COMPILE)ld
-
-#objcopy
-objcopy = $(CROSS_COMPILE)objcopy
 
 #clean
 CL = rm -f
@@ -84,34 +84,38 @@ CL = rm -f
 # command
 
 .PHONY: all
-all: $(OUTPUT_FILE_SA0) $(OUTPUT_FILE_SA6)
+
+all: $(FILE_NAME_SA0).srec $(FILE_NAME_SA0).bin
+all: $(FILE_NAME_SA6).srec $(FILE_NAME_SA6).bin
+
 ###################################################
 # Linker
 ###################################################
-$(OUTPUT_FILE_SA0) : $(MEMORY_DEF_SA0) $(OBJ_FILE_SA0)
-	$(LD) $(OBJ_FILE_SA0)		 	\
-	-T $(MEMORY_DEF_SA0)			\
-	-o $(OUTPUT_FILE_SA0)			\
-	-Map $(FILE_NAME_SA0).map 		\
 
-	$(objcopy) -O srec --adjust-vma=$(RCAR_VMA_ADJUST_ADDR) --srec-forceS3  $(OUTPUT_FILE_SA0) $(FILE_NAME_SA0).srec
-	$(objcopy) -O binary --adjust-vma=$(RCAR_VMA_ADJUST_ADDR) --srec-forceS3  $(OUTPUT_FILE_SA0) $(FILE_NAME_SA0).bin
+$(FILE_NAME_SA0).srec: $(OUTPUT_FILE_SA0) | $$(@D)/
+	$(aarch64-oc) -O srec --adjust-vma=$(RCAR_VMA_ADJUST_ADDR) --srec-forceS3 $(OUTPUT_FILE_SA0) $(FILE_NAME_SA0).srec
 
-$(OUTPUT_FILE_SA6) : $(MEMORY_DEF_SA6) $(OBJ_FILE_SA6)
-	$(LD) $(OBJ_FILE_SA6)		 	\
-	-T $(MEMORY_DEF_SA6)			\
-	-o $(OUTPUT_FILE_SA6)			\
-	-Map $(FILE_NAME_SA6).map 		\
+$(FILE_NAME_SA0).bin: $(OUTPUT_FILE_SA0) | $$(@D)/
+	$(aarch64-oc) -O binary --adjust-vma=$(RCAR_VMA_ADJUST_ADDR) --srec-forceS3 $(OUTPUT_FILE_SA0) $(FILE_NAME_SA0).bin
 
-	$(objcopy) -O srec --adjust-vma=$(RCAR_VMA_ADJUST_ADDR) --srec-forceS3  $(OUTPUT_FILE_SA6) $(FILE_NAME_SA6).srec
-	$(objcopy) -O binary --adjust-vma=$(RCAR_VMA_ADJUST_ADDR) --srec-forceS3  $(OUTPUT_FILE_SA6) $(FILE_NAME_SA6).bin
+$(OUTPUT_FILE_SA0): $(MEMORY_DEF_SA0) $(OBJ_FILE_SA0) | $$(@D)/
+	$(aarch64-ld) $(OBJ_FILE_SA0) -nostdlib -T $(MEMORY_DEF_SA0) -o $(OUTPUT_FILE_SA0) -Wl,-Map $(FILE_NAME_SA0).map
+
+$(FILE_NAME_SA6).srec: $(OUTPUT_FILE_SA6) | $$(@D)/
+	$(aarch64-oc) -O srec --adjust-vma=$(RCAR_VMA_ADJUST_ADDR) --srec-forceS3 $(OUTPUT_FILE_SA6) $(FILE_NAME_SA6).srec
+
+$(FILE_NAME_SA6).bin: $(OUTPUT_FILE_SA6) | $$(@D)/
+	$(aarch64-oc) -O binary --adjust-vma=$(RCAR_VMA_ADJUST_ADDR) --srec-forceS3 $(OUTPUT_FILE_SA6) $(FILE_NAME_SA6).bin
+
+$(OUTPUT_FILE_SA6): $(MEMORY_DEF_SA6) $(OBJ_FILE_SA6) | $$(@D)/
+	$(aarch64-ld) $(OBJ_FILE_SA6) -nostdlib -T $(MEMORY_DEF_SA6) -o $(OUTPUT_FILE_SA6) -Wl,-Map $(FILE_NAME_SA6).map
 
 ###################################################
 # Compile
 ###################################################
 
-%.o:../%.c
-	$(CC) -c -I $< -o $@
+%.o: %.c | $$(@D)/
+	$(aarch64-cc) $(CPPFLAGS) $(CFLAGS) -c -o $@ $<
 
 .PHONY: clean
 clean:

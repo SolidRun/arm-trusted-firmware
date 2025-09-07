@@ -1,15 +1,19 @@
 /*
- * Copyright (c) 2017-2019, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2017-2025, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
 #include <assert.h>
+#include <inttypes.h>
+#include <stdint.h>
 #include <string.h>
 
 #include <arch_helpers.h>
+#include <arch_features.h>
 #include <bl31/ehf.h>
 #include <bl31/interrupt_mgmt.h>
+#include <bl31/sync_handle.h>
 #include <common/bl_common.h>
 #include <common/debug.h>
 #include <common/runtime_svc.h>
@@ -25,7 +29,8 @@
 #define MAX_EVENT_NESTING	2U
 
 /* Per-CPU SDEI state access macro */
-#define sdei_get_this_pe_state()	(&cpu_state[plat_my_core_pos()])
+#define sdei_get_this_pe_state()		(&cpu_state[plat_my_core_pos()])
+#define sdei_get_target_pe_state(_pe)	(&cpu_state[plat_core_pos_by_mpidr(_pe)])
 
 /* Structure to store information about an outstanding dispatch */
 typedef struct sdei_dispatch_context {
@@ -53,6 +58,13 @@ typedef struct sdei_cpu_state {
 
 /* SDEI states for all cores in the system */
 static sdei_cpu_state_t cpu_state[PLATFORM_CORE_COUNT];
+
+bool sdei_is_target_pe_masked(uint64_t target_pe)
+{
+	const sdei_cpu_state_t *state = sdei_get_target_pe_state(target_pe);
+
+	return state->pe_masked;
+}
 
 int64_t sdei_pe_mask(void)
 {
@@ -232,6 +244,25 @@ static cpu_context_t *restore_and_resume_ns_context(void)
 }
 
 /*
+ * Prepare for ERET:
+ * - Set the ELR to the registered handler address
+ * - Set the SPSR register by calling the common create_spsr() function
+ */
+
+static void sdei_set_elr_spsr(sdei_entry_t *se, sdei_dispatch_context_t *disp_ctx)
+{
+	unsigned int client_el = sdei_client_el();
+	u_register_t sdei_spsr = SPSR_64(client_el, MODE_SP_ELX,
+					DISABLE_ALL_EXCEPTIONS);
+
+	u_register_t interrupted_pstate = disp_ctx->spsr_el3;
+
+	sdei_spsr = create_spsr(interrupted_pstate, client_el);
+
+	cm_set_elr_spsr_el3(NON_SECURE, (uintptr_t) se->ep, sdei_spsr);
+}
+
+/*
  * Populate the Non-secure context so that the next ERET will dispatch to the
  * SDEI client.
  */
@@ -256,15 +287,8 @@ static void setup_ns_dispatch(sdei_ev_map_t *map, sdei_entry_t *se,
 	SMC_SET_GP(ctx, CTX_GPREG_X2, disp_ctx->elr_el3);
 	SMC_SET_GP(ctx, CTX_GPREG_X3, disp_ctx->spsr_el3);
 
-	/*
-	 * Prepare for ERET:
-	 *
-	 * - Set PC to the registered handler address
-	 * - Set SPSR to jump to client EL with exceptions masked
-	 */
-	cm_set_elr_spsr_el3(NON_SECURE, (uintptr_t) se->ep,
-			SPSR_64(sdei_client_el(), MODE_SP_ELX,
-				DISABLE_ALL_EXCEPTIONS));
+	/* Setup the elr and spsr register to prepare for ERET */
+	sdei_set_elr_spsr(se, disp_ctx);
 
 #if DYNAMIC_WORKAROUND_CVE_2018_3639
 	cve_2018_3639_t *tgt_cve_2018_3639;
@@ -394,8 +418,8 @@ int sdei_intr_handler(uint32_t intr_raw, uint32_t flags, void *handle,
 		 * Interrupts received while this PE was masked can't be
 		 * dispatched.
 		 */
-		SDEI_LOG("interrupt %u on %llx while PE masked\n", map->intr,
-				mpidr);
+		SDEI_LOG("interrupt %u on %" PRIx64 " while PE masked\n",
+			 map->intr, mpidr);
 		if (is_event_shared(map))
 			sdei_map_lock(map);
 
@@ -466,8 +490,8 @@ int sdei_intr_handler(uint32_t intr_raw, uint32_t flags, void *handle,
 	if (is_event_shared(map))
 		sdei_map_unlock(map);
 
-	SDEI_LOG("ACK %llx, ev:%d ss:%d spsr:%lx ELR:%lx\n", mpidr, map->ev_num,
-			sec_state, read_spsr_el3(), read_elr_el3());
+	SDEI_LOG("ACK %" PRIx64 ", ev:0x%x ss:%d spsr:%lx ELR:%lx\n",
+		 mpidr, map->ev_num, sec_state, read_spsr_el3(), read_elr_el3());
 
 	ctx = handle;
 
@@ -503,7 +527,7 @@ int sdei_intr_handler(uint32_t intr_raw, uint32_t flags, void *handle,
 	 * interrupt.
 	 */
 	if ((map->ev_num != SDEI_EVENT_0) && !is_map_bound(map)) {
-		ERROR("Invalid SDEI mapping: ev=%u\n", map->ev_num);
+		ERROR("Invalid SDEI mapping: ev=0x%x\n", map->ev_num);
 		panic();
 	}
 	plat_ic_end_of_interrupt(intr_raw);
@@ -571,14 +595,14 @@ int sdei_dispatch_event(int ev_num)
 	if (!can_sdei_state_trans(se, DO_DISPATCH))
 		return -1;
 
-	/* Activate the priority corresponding to the event being dispatched */
-	ehf_activate_priority(sdei_event_priority(map));
-
 	/*
 	 * Prepare for NS dispatch by restoring the Non-secure context and
 	 * marking that as active.
 	 */
 	ns_ctx = restore_and_resume_ns_context();
+
+	/* Activate the priority corresponding to the event being dispatched */
+	ehf_activate_priority(sdei_event_priority(map));
 
 	/* Dispatch event synchronously */
 	setup_ns_dispatch(map, se, ns_ctx, &dispatch_jmp);

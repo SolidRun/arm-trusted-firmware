@@ -205,7 +205,14 @@ void k3_pwr_domain_on_finish(const psci_power_state_t *target_state)
 
 static void __dead2 k3_system_off(void)
 {
-	ERROR("System Off: operation not handled.\n");
+	int ret;
+
+	/* Queue up the system shutdown request */
+	ret = ti_sci_device_put_no_wait(PLAT_BOARD_DEVICE_ID);
+	if (ret != 0) {
+		ERROR("Sending system shutdown message failed (%d)\n", ret);
+	}
+
 	while (true)
 		wfi();
 }
@@ -227,28 +234,94 @@ static int k3_validate_power_state(unsigned int power_state,
 	return PSCI_E_SUCCESS;
 }
 
-static int k3_validate_ns_entrypoint(uintptr_t entrypoint)
+static void k3_pwr_domain_suspend_to_mode(const psci_power_state_t *target_state, uint8_t mode)
 {
-	/* TODO: perform the proper validation */
+	unsigned int core, proc_id;
 
-	return PSCI_E_SUCCESS;
+	core = plat_my_core_pos();
+	proc_id = PLAT_PROC_START_ID + core;
+
+	/* Prevent interrupts from spuriously waking up this cpu */
+	k3_gic_cpuif_disable();
+	k3_gic_save_context();
+
+	k3_pwr_domain_off(target_state);
+
+	ti_sci_enter_sleep(proc_id, mode, k3_sec_entrypoint);
 }
 
-static const plat_psci_ops_t k3_plat_psci_ops = {
+static void k3_pwr_domain_suspend_dm_managed(const psci_power_state_t *target_state)
+{
+	uint8_t mode = MSG_VALUE_SLEEP_MODE_DEEP_SLEEP;
+	int ret;
+
+	ret = ti_sci_lpm_get_next_sys_mode(&mode);
+	if (ret != 0) {
+		ERROR("Failed to fetch next system mode\n");
+	}
+
+	k3_pwr_domain_suspend_to_mode(target_state, mode);
+}
+
+static void k3_pwr_domain_suspend(const psci_power_state_t *target_state)
+{
+	k3_pwr_domain_suspend_to_mode(target_state, MSG_VALUE_SLEEP_MODE_DEEP_SLEEP);
+}
+
+static void k3_pwr_domain_suspend_finish(const psci_power_state_t *target_state)
+{
+	k3_gic_restore_context();
+	k3_gic_cpuif_enable();
+}
+
+static void k3_get_sys_suspend_power_state(psci_power_state_t *req_state)
+{
+	unsigned int i;
+
+	/* CPU & cluster off, system in retention */
+	for (i = MPIDR_AFFLVL0; i <= PLAT_MAX_PWR_LVL; i++) {
+		req_state->pwr_domain_state[i] = PLAT_MAX_OFF_STATE;
+	}
+}
+
+static plat_psci_ops_t k3_plat_psci_ops = {
 	.cpu_standby = k3_cpu_standby,
 	.pwr_domain_on = k3_pwr_domain_on,
 	.pwr_domain_off = k3_pwr_domain_off,
 	.pwr_domain_on_finish = k3_pwr_domain_on_finish,
+	.pwr_domain_suspend = k3_pwr_domain_suspend,
+	.pwr_domain_suspend_finish = k3_pwr_domain_suspend_finish,
+	.get_sys_suspend_power_state = k3_get_sys_suspend_power_state,
 	.system_off = k3_system_off,
 	.system_reset = k3_system_reset,
 	.validate_power_state = k3_validate_power_state,
-	.validate_ns_entrypoint = k3_validate_ns_entrypoint
 };
 
 int plat_setup_psci_ops(uintptr_t sec_entrypoint,
 			const plat_psci_ops_t **psci_ops)
 {
+	uint64_t fw_caps = 0;
+	int ret;
+
 	k3_sec_entrypoint = sec_entrypoint;
+
+	ret = ti_sci_query_fw_caps(&fw_caps);
+	if (ret) {
+		ERROR("Unable to query firmware capabilities (%d)\n", ret);
+	}
+
+	/* If firmware does not support any known suspend mode */
+	if (!(fw_caps & (MSG_FLAG_CAPS_LPM_DEEP_SLEEP |
+			 MSG_FLAG_CAPS_LPM_MCU_ONLY |
+			 MSG_FLAG_CAPS_LPM_STANDBY |
+			 MSG_FLAG_CAPS_LPM_PARTIAL_IO))) {
+		/* Disable PSCI suspend support */
+		k3_plat_psci_ops.pwr_domain_suspend = NULL;
+		k3_plat_psci_ops.pwr_domain_suspend_finish = NULL;
+		k3_plat_psci_ops.get_sys_suspend_power_state = NULL;
+	} else if (fw_caps & MSG_FLAG_CAPS_LPM_DM_MANAGED) {
+		k3_plat_psci_ops.pwr_domain_suspend = k3_pwr_domain_suspend_dm_managed;
+	}
 
 	*psci_ops = &k3_plat_psci_ops;
 

@@ -1,14 +1,11 @@
 FF-A manifest binding to device tree
-========================================
+====================================
 
 This document defines the nodes and properties used to define a partition,
 according to the FF-A specification.
 
-Version 1.0
------------
-
 Partition Properties
-^^^^^^^^^^^^^^^^^^^^
+--------------------
 
 - compatible [mandatory]
    - value type: <string>
@@ -32,8 +29,13 @@ Partition Properties
 
 - uuid [mandatory]
    - value type: <prop-encoded-array>
-   - An array consisting of 4 <u32> values, identifying the UUID of the service
-     implemented by this partition. The UUID format is described in RFC 4122.
+   - An array of comma separated tuples each consisting of 4 <u32> values,
+     identifying the UUID of the services implemented by this partition.
+     The UUID format is described in RFC 4122.
+   - These 4 <u32> values are packed similar to the UUID register mapping
+     specified in section '5.3 Unique Identification format', SMC Calling
+     Convention, DEN0028, v1.6 G BET0
+     (https://developer.arm.com/documentation/den0028/latest/).
 
 - id
    - value type: <u32>
@@ -85,7 +87,7 @@ Partition Properties
      the partition. Absence of this field indicates that the entry point is at
      offset 0x0 from the base of the partition's binary.
 
-- xlat-granule [mandatory]
+- xlat-granule
    - value type: <u32>
    - Translation granule used with the partition:
 
@@ -97,7 +99,7 @@ Partition Properties
    - value type: <u32>
    - A unique number amongst all partitions that specifies if this partition
      must be booted before others. The partition with the smaller number will be
-     booted first.
+     booted first. Highest vlue allowed for this field is 0xFFFF.
 
 - rx-tx-buffer
    - value type: "memory-regions" node
@@ -107,25 +109,49 @@ Partition Properties
 
 - messaging-method [mandatory]
    - value type: <u32>
-   - Specifies which messaging methods are supported by the partition:
+   - Specifies which messaging methods are supported by the partition, set bit
+     means the feature is supported, clear bit - not supported:
 
-      - 0x0: direct messaging method
-      - 0x1: indirect messaging method
-      - 0x2: both direct and indirect messaging methods
-      - 0x3: direct messaging method with managed exit support
-      - 0x4: both messaging methods with managed exit support
+      - Bit[0]: partition can receive direct requests via FFA_MSG_SEND_DIRECT_REQ ABI if set
+      - Bit[1]: partition can send direct requests via FFA_MSG_SEND_DIRECT_REQ ABI if set
+      - Bit[2]: partition can send and receive indirect messages
+      - Bit[9]: partition can receive direct requests via FFA_MSG_SEND_DIRECT_REQ2 ABI if set
+      - Bit[10]: partition can send direct requests via FFA_MSG_SEND_DIRECT_REQ2 ABI if set
+
+- managed-exit
+   - value type: <empty>
+   - Specifies if managed exit is supported.
+   - This field is deprecated in favor of ns-interrupts-action field in the FF-A
+     v1.1 EAC0 spec.
+
+- managed-exit-virq
+   - value type: <empty>
+   - Indicates if the partition needs managed exit, if supported, to be signaled
+     through vIRQ signal.
+
+- ns-interrupts-action [mandatory]
+   - value type: <u32>
+   - Specifies the action that the SPMC must take in response to a Non-secure
+     physical interrupt.
+
+      - 0x0: Non-secure interrupt is queued
+      - 0x1: Non-secure interrupt is signaled after a managed exit
+      - 0x2: Non-secure interrupt is signaled
+
+   - This field supersedes the managed-exit field in the FF-A v1.0 spec.
+
+- other-s-interrupts-action
+   - value type: <u32>
+   - Specifies the action that the SPMC must take in response to a Other-Secure
+     physical interrupt.
+
+      - 0x0: Other-Secure interrupt is queued
+      - 0x1: Other-Secure interrupt is signaled
 
 - has-primary-scheduler
    - value type: <empty>
    - Presence of this field indicates that the partition implements the primary
      scheduler. If so, run-time EL must be EL1.
-
-- run-time-model
-   - value type: <u32>
-   - Run time model that the SPM must enforce for this SP:
-
-      - 0x0: Run to completion
-      - 0x1: Preemptible
 
 - time-slice-mem
    - value type: <empty>
@@ -134,19 +160,35 @@ Partition Properties
 
 - gp-register-num
    - value type: <u32>
-   - Presence of this field indicates that the partition expects the
-     ffa_init_info structure to be passed in via the specified general purpose
-     register.
-     The field specifies the general purpose register number but not its width.
+   - The field specifies the general purpose register number but not its width.
      The width is derived from the partition's execution state, as specified in
      the partition properties. For example, if the number value is 1 then the
      general-purpose register used will be x1 in AArch64 state and w1 in AArch32
      state.
+     Presence of this field indicates that the partition expects the address of
+     the FF-A boot information blob to be passed in the specified general purpose
+     register.
 
-- stream-endpoint-ids
-   - value type: <prop-encoded-array>
-   - List of <u32> tuples, identifying the IDs this partition is acting as
-     proxy for.
+- power-management-messages
+   - value type: <u32>
+   - Specifies which power management messages a partition subscribes to.
+     A set bit means the partition should be informed of the power event, clear
+     bit - should not be informed of event:
+
+      - Bit[0]: CPU_OFF
+      - Bit[1]: CPU_SUSPEND
+      - Bit[2]: CPU_SUSPEND_RESUME
+
+- vm-availability-messages
+   - value type: <u32>
+   - Specifies which VM availability messages a partition subscribes to. A set
+     bit means the partition should be informed of the event, clear bit - should
+     not be informed of event:
+
+      - Bit[0]: VM created
+      - Bit[1]: VM destroyed
+
+.. _memory_region_node:
 
 Memory Regions
 --------------
@@ -171,18 +213,46 @@ Memory Regions
       - 0x1: Read
       - 0x2: Write
       - 0x4: Execute
+      - 0x8: Security state
 
 - base-address
    - value type: <u64>
    - Base address of the region. The address must be aligned to the translation
      granule size.
      The address given may be a Physical Address (PA), Virtual Address (VA), or
-     Intermediate Physical Address (IPA). Refer to the FFA specification for
+     Intermediate Physical Address (IPA). Refer to the FF-A specification for
      more information on the restrictions around the address type.
      If the base address is omitted then the partition manager must map a memory
      region of the specified size into the partition's translation regime and
      then communicate the region properties (including the base address chosen
      by the partition manager) to the partition.
+
+- load-address-relative-offset
+   - value type: <u64>
+   - Offset relative to the load address of the partition.
+     When this is provided in the partition manifest, it should be added to the
+     load address to get the base address of the region. The secure partition
+     manifest can have either "base-address" or "load-address-relative-offset".
+     It cannot have both.
+
+- stream-ids
+   - value type: <prop-encoded-array>
+   - List of IDs belonging to a DMA capable peripheral device that has access to
+     the memory region represented by current node.
+   - Each ID must have been declared in exactly one device region node.
+
+- smmu-id
+   - value type: <u32>
+   - Identifies the SMMU IP that enforces the access control for the DMA device
+     that owns the above stream-ids.
+
+- stream-ids-access-permissions
+   - value type: <prop-encoded-array>
+   - List of attributes representing the instruction and data access permissions
+     used by the DMA device streams to access the memory region represented by
+     current node.
+
+.. _device_region_node:
 
 Device Regions
 --------------
@@ -195,14 +265,10 @@ Device Regions
    - value type: <string>
    - Name of the device region e.g. for debugging purposes.
 
-- reg [mandatory]
-   - value type: <prop-encoded-array>
-   - A (address, num-pages) pair describing the device, where:
-
-      - address: The physical base address <u64> value of the device MMIO
-        region.
-      - num-pages: The <u32> number of pages of the region. The total size of
-        the region is this value multiplied by the translation granule size.
+- pages-count [mandatory]
+   - value type: <u32>
+   - Count of pages of memory region as a multiple of the translation granule
+     size
 
 - attributes [mandatory]
    - value type: <u32>
@@ -211,6 +277,15 @@ Device Regions
      - 0x1: Read
      - 0x2: Write
      - 0x4: Execute
+     - 0x8: Security state
+
+- base-address [mandatory]
+   - value type: <u64>
+   - Base address of the region. The address must be aligned to the translation
+     granule size.
+     The address given may be a Physical Address (PA), Virtual Address (VA), or
+     Intermediate Physical Address (IPA). Refer to the FF-A specification for
+     more information on the restrictions around the address type.
 
 - smmu-id
    - value type: <u32>
@@ -221,23 +296,52 @@ Device Regions
 
 - stream-ids
    - value type: <prop-encoded-array>
-   - A list of (id, mem-manage) pair, where:
+   - List of IDs where an ID is a unique <u32> value amongst all devices assigned
+     to the partition.
 
-      - id: A unique <u32> value amongst all devices assigned to the partition.
-
-- interrupts [mandatory]
+- interrupts
    - value type: <prop-encoded-array>
    - A list of (id, attributes) pair describing the device interrupts, where:
 
       - id: The <u32> interrupt IDs.
-      - attributes: A <u32> value,
-        containing the attributes for each interrupt ID:
+      - attributes: A <u32> value, containing attributes for each interrupt ID:
 
-         - Interrupt type: SPI, PPI, SGI
-         - Interrupt configuration: Edge triggered, Level triggered
-         - Interrupt security state: Secure, Non-secure
-         - Interrupt priority value
-         - Target execution context/vCPU for each SPI
+        +----------------------+----------+
+        |Field                 | Bit(s)   |
+        +----------------------+----------+
+        | Priority	       | 7:0      |
+        +----------------------+----------+
+        | Security state       | 8        |
+        +----------------------+----------+
+        | Config(Edge/Level)   | 9        |
+        +----------------------+----------+
+        | Type(SPI/PPI/SGI)    | 11:10    |
+        +----------------------+----------+
+
+        Security state:
+          - Secure:       1
+          - Non-secure:   0
+
+        Configuration:
+          - Edge triggered:       0
+          - Level triggered:      1
+
+        Type:
+          - SPI:  0b10
+          - PPI:  0b01
+          - SGI:  0b00
+
+- interrupts-target
+   - value type: <prop-encoded-array>
+   - A list of (id, mpdir upper bits, mpidr lower bits) tuples describing which
+     mpidr the interrupt is routed to, where:
+
+      - id: The <u32> interrupt ID. Must be one of those specified in the
+            "interrupts" field.
+      - mpidr upper bits: The <u32> describing the upper bits of the 64 bits
+                          mpidr
+      - mpidr lower bits: The <u32> describing the lower bits of the 64 bits
+                          mpidr
 
 - exclusive-access
    - value type: <empty>
@@ -246,4 +350,4 @@ Device Regions
 
 --------------
 
-*Copyright (c) 2019-2021, Arm Limited and Contributors. All rights reserved.*
+*Copyright (c) 2019-2024, Arm Limited and Contributors. All rights reserved.*

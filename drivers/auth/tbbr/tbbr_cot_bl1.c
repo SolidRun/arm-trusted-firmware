@@ -1,21 +1,23 @@
 /*
- * Copyright (c) 2015-2020, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2015-2024, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
 #include <stddef.h>
 
-#include <platform_def.h>
-#include <drivers/auth/mbedtls/mbedtls_config.h>
+#include <mbedtls/version.h>
 
 #include <drivers/auth/auth_mod.h>
 #include <drivers/auth/tbbr_cot_common.h>
+
 #if USE_TBBR_DEFS
 #include <tools_share/tbbr_oid.h>
 #else
 #include <platform_oid.h>
 #endif
+
+#include <platform_def.h>
 
 static auth_param_type_desc_t scp_bl2u_hash = AUTH_PARAM_TYPE_DESC(
 		AUTH_PARAM_HASH, SCP_FWU_CFG_HASH_OID);
@@ -171,7 +173,6 @@ static const auth_img_desc_t fw_config = {
 static const auth_img_desc_t * const cot_desc[] = {
 	[TRUSTED_BOOT_FW_CERT_ID]		=	&trusted_boot_fw_cert,
 	[BL2_IMAGE_ID]				=	&bl2_image,
-	[HW_CONFIG_ID]				=	&hw_config,
 	[TB_FW_CONFIG_ID]			=	&tb_fw_config,
 	[FW_CONFIG_ID]				=	&fw_config,
 	[FWU_CERT_ID]				=	&fwu_cert,

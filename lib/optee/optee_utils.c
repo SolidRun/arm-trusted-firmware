@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2020, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2017-2023, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -9,63 +9,28 @@
 #include <common/debug.h>
 #include <lib/optee_utils.h>
 
-/*
- * load_addr_hi and load_addr_lo: image load address.
- * image_id: 0 - pager, 1 - paged
- * size: image size in bytes.
- */
-typedef struct optee_image {
-	uint32_t load_addr_hi;
-	uint32_t load_addr_lo;
-	uint32_t image_id;
-	uint32_t size;
-} optee_image_t;
-
-#define OPTEE_PAGER_IMAGE_ID		0
-#define OPTEE_PAGED_IMAGE_ID		1
-
-#define OPTEE_MAX_NUM_IMAGES		2u
-
-#define TEE_MAGIC_NUM_OPTEE		0x4554504f
-/*
- * magic: header magic number.
- * version: OPTEE header version:
- *		1 - not supported
- *		2 - supported
- * arch: OPTEE os architecture type: 0 - AARCH32, 1 - AARCH64.
- * flags: unused currently.
- * nb_images: number of images.
- */
-typedef struct optee_header {
-	uint32_t magic;
-	uint8_t version;
-	uint8_t arch;
-	uint16_t flags;
-	uint32_t nb_images;
-	optee_image_t optee_image_list[];
-} optee_header_t;
+#include <platform_def.h>
 
 /*******************************************************************************
  * Check if it is a valid tee header
- * Return 1 if valid
- * Return 0 if invalid
+ * Return true if valid
+ * Return false if invalid
  ******************************************************************************/
-static inline int tee_validate_header(optee_header_t *header)
+static bool tee_validate_header(optee_header_t *header)
 {
-	int valid = 0;
-
 	if ((header->magic == TEE_MAGIC_NUM_OPTEE) &&
 		(header->version == 2u) &&
 		(header->nb_images > 0u) &&
 		(header->nb_images <= OPTEE_MAX_NUM_IMAGES)) {
-		valid = 1;
+		return true;
 	}
 
-	else {
-		WARN("Not a known TEE, use default loading options.\n");
-	}
+	return false;
+}
 
-	return valid;
+bool optee_header_is_valid(uintptr_t header_base)
+{
+	return tee_validate_header((optee_header_t *)header_base);
 }
 
 /*******************************************************************************
@@ -83,11 +48,14 @@ static int parse_optee_image(image_info_t *image_info,
 	init_size = image->size;
 
 	/*
-	 * -1 indicates loader decided address; take our pre-mapped area
-	 * for current image since arm-tf could not allocate memory dynamically
+	 * image->load_addr_hi & image->load_addr_lo set to UINT32_MAX indicate
+	 * loader decided address; take our pre-mapped area for current image
+	 * since arm-tf could not allocate memory dynamically
 	 */
-	if (init_load_addr == -1)
+	if ((image->load_addr_hi == UINT32_MAX) &&
+	    (image->load_addr_lo == UINT32_MAX)) {
 		init_load_addr = image_info->image_base;
+	}
 
 	/* Check that the default end address doesn't overflow */
 	if (check_uptr_overflow(image_info->image_base,
@@ -139,7 +107,8 @@ int parse_optee_header(entry_point_info_t *header_ep,
 
 {
 	optee_header_t *header;
-	int num, ret;
+	uint32_t num;
+	int ret;
 
 	assert(header_ep);
 	header = (optee_header_t *)header_ep->pc;
@@ -182,15 +151,24 @@ int parse_optee_header(entry_point_info_t *header_ep,
 	}
 
 	/* Parse OPTEE image */
-	for (num = 0; num < header->nb_images; num++) {
+	for (num = 0U; num < header->nb_images; num++) {
 		if (header->optee_image_list[num].image_id ==
 				OPTEE_PAGER_IMAGE_ID) {
 			ret = parse_optee_image(pager_image_info,
 				&header->optee_image_list[num]);
 		} else if (header->optee_image_list[num].image_id ==
 				OPTEE_PAGED_IMAGE_ID) {
-			ret = parse_optee_image(paged_image_info,
-				&header->optee_image_list[num]);
+			if (paged_image_info == NULL) {
+				if (header->optee_image_list[num].size != 0U) {
+					ERROR("Paged image is not supported\n");
+					return -1;
+				}
+
+				continue;
+			} else {
+				ret = parse_optee_image(paged_image_info,
+							&header->optee_image_list[num]);
+			}
 		} else {
 			ERROR("Parse optee image failed.\n");
 			return -1;
@@ -202,7 +180,7 @@ int parse_optee_header(entry_point_info_t *header_ep,
 
 	/*
 	 * Update "pc" value which should comes from pager image. After the
-	 * header image is parsed, it will be unuseful, and the actual
+	 * header image is parsed, it will be useless, and the actual
 	 * execution image after BL31 is pager image.
 	 */
 	header_ep->pc =	pager_image_info->image_base;
@@ -212,8 +190,10 @@ int parse_optee_header(entry_point_info_t *header_ep,
 	 * header image arguments so that can be read by the
 	 * BL32 SPD.
 	 */
-	header_ep->args.arg1 = paged_image_info->image_base;
-	header_ep->args.arg2 = paged_image_info->image_size;
+	if (paged_image_info != NULL) {
+		header_ep->args.arg1 = paged_image_info->image_base;
+		header_ep->args.arg2 = paged_image_info->image_size;
+	}
 
 	/* Set OPTEE runtime arch - aarch32/aarch64 */
 	if (header->arch == 0) {

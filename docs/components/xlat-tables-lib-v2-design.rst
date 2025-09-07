@@ -412,6 +412,6 @@ mapping cannot be cached in the TLBs.
 
 --------------
 
-*Copyright (c) 2017-2019, Arm Limited and Contributors. All rights reserved.*
+*Copyright (c) 2017-2025, Arm Limited and Contributors. All rights reserved.*
 
 .. |Alignment Example| image:: ../resources/diagrams/xlat_align.png

@@ -6,6 +6,8 @@
 
 include plat/renesas/common/common.mk
 
+ENABLE_STACK_PROTECTOR	:= strong
+
 ifndef LSI
   $(error "Error: Unknown LSI. Please use LSI=<LSI name> to specify the LSI")
 else
@@ -146,6 +148,13 @@ RCAR_RPC_HYPERFLASH_LOCKED := 1
 endif
 $(eval $(call add_define,RCAR_RPC_HYPERFLASH_LOCKED))
 
+# Support A/B switching with RPC HYPERFLASH access by default
+# Use together with https://github.com/marex/abloader .
+ifndef RCAR_RPC_HYPERFLASH_ABLOADER
+RCAR_RPC_HYPERFLASH_ABLOADER := 0
+endif
+$(eval $(call add_define,RCAR_RPC_HYPERFLASH_ABLOADER))
+
 # Process RCAR_SECURE_BOOT flag
 ifndef RCAR_SECURE_BOOT
 RCAR_SECURE_BOOT := 1
@@ -245,6 +254,12 @@ RCAR_DRAM_LPDDR4_MEMCONF :=1
 endif
 $(eval $(call add_define,RCAR_DRAM_LPDDR4_MEMCONF))
 
+# Process RCAR_DRAM_MEMRANK flag
+ifndef RCAR_DRAM_MEMRANK
+RCAR_DRAM_MEMRANK :=0
+endif
+$(eval $(call add_define,RCAR_DRAM_MEMRANK))
+
 # Process RCAR_DRAM_DDR3L_MEMCONF flag
 ifndef RCAR_DRAM_DDR3L_MEMCONF
 RCAR_DRAM_DDR3L_MEMCONF :=1
@@ -279,6 +294,11 @@ ifndef RCAR_SYSTEM_RESET_KEEPON_DDR
 RCAR_SYSTEM_RESET_KEEPON_DDR := 0
 endif
 $(eval $(call add_define,RCAR_SYSTEM_RESET_KEEPON_DDR))
+
+ifndef RCAR_GEN3_BL33_GZIP
+RCAR_GEN3_BL33_GZIP := 0
+endif
+$(eval $(call add_define,RCAR_GEN3_BL33_GZIP))
 
 # RCAR_SYSTEM_RESET_KEEPON_DDR requires power control of PMIC etc.
 # When executing SYSTEM_SUSPEND other than Salvator-X, Salvator-XS and Ebisu,
@@ -315,6 +335,17 @@ PLAT_INCLUDES	+=	-Idrivers/renesas/common/ddr		\
 BL2_SOURCES	+=	plat/renesas/rcar/bl2_plat_setup.c	\
 			drivers/renesas/rcar/board/board.c
 
+ifeq (${RCAR_GEN3_BL33_GZIP},1)
+include lib/zlib/zlib.mk
+
+BL2_SOURCES	+=	common/image_decompress.c               \
+			$(ZLIB_SOURCES)
+endif
+
+ifneq (${ENABLE_STACK_PROTECTOR},0)
+BL_COMMON_SOURCES	+=	plat/renesas/rcar/rcar_stack_protector.c
+endif
+
 ifeq (${RCAR_GEN3_ULCB},1)
 BL31_SOURCES		+=	drivers/renesas/rcar/cpld/ulcb_cpld.c
 endif
@@ -327,13 +358,13 @@ distclean realclean clean: clean_layout_tool clean_srecord
 LAYOUT_TOOLPATH ?= tools/renesas/rcar_layout_create
 
 clean_layout_tool:
-	@echo "clean layout tool"
-	${Q}${MAKE} -C ${LAYOUT_TOOLPATH} clean
+	$(s)echo "clean layout tool"
+	$(q)${MAKE} -C ${LAYOUT_TOOLPATH} clean
 
 .PHONY: rcar_layout_tool
 rcar_layout_tool:
-	@echo "generating layout srecs"
-	${Q}${MAKE} CPPFLAGS="-D=AARCH64" --no-print-directory -C ${LAYOUT_TOOLPATH}
+	$(s)echo "generating layout srecs"
+	$(q)${MAKE} CPPFLAGS="-D=AARCH64" --no-print-directory -C ${LAYOUT_TOOLPATH}
 
 # srecords
 SREC_PATH	= ${BUILD_PLAT}
@@ -341,13 +372,16 @@ BL2_ELF_SRC	= ${SREC_PATH}/bl2/bl2.elf
 BL31_ELF_SRC	= ${SREC_PATH}/bl31/bl31.elf
 
 clean_srecord:
-	@echo "clean bl2 and bl31 srecs"
+	$(s)echo "clean bl2 and bl31 srecs"
 	rm -f ${SREC_PATH}/bl2.srec ${SREC_PATH}/bl31.srec
 
-.PHONY: rcar_srecord
-rcar_srecord: $(BL2_ELF_SRC) $(BL31_ELF_SRC)
-	@echo "generating srec: ${SREC_PATH}/bl2.srec"
-	$(Q)$(OC) -O srec --srec-forceS3 ${BL2_ELF_SRC}  ${SREC_PATH}/bl2.srec
-	@echo "generating srec: ${SREC_PATH}/bl31.srec"
-	$(Q)$(OC) -O srec --srec-forceS3 ${BL31_ELF_SRC} ${SREC_PATH}/bl31.srec
+$(SREC_PATH)/bl2.srec: $(BL2_ELF_SRC)
+	$(s)echo "generating srec: $(SREC_PATH)/bl2.srec"
+	$(q)$($(ARCH)-oc) -O srec --srec-forceS3 $(BL2_ELF_SRC)  $(SREC_PATH)/bl2.srec
 
+$(SREC_PATH)/bl31.srec: $(BL31_ELF_SRC)
+	$(s)echo "generating srec: $(SREC_PATH)/bl31.srec"
+	$(q)$($(ARCH)-oc) -O srec --srec-forceS3 $(BL31_ELF_SRC) $(SREC_PATH)/bl31.srec
+
+.PHONY: rcar_srecord
+rcar_srecord: $(SREC_PATH)/bl2.srec $(SREC_PATH)/bl31.srec

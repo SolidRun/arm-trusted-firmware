@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2018-2020, ARM Limited and Contributors. All rights reserved.
+# Copyright (c) 2018-2025, Arm Limited and Contributors. All rights reserved.
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
@@ -16,6 +16,7 @@ PLAT_INCLUDES		:=	-Idrivers/imx/uart			\
 				-Iplat/imx/imx7/include			\
 				-Idrivers/imx/timer			\
 				-Idrivers/imx/usdhc			\
+				-Iinclude/common/tbbr
 
 # Translation tables library
 include lib/xlat_tables_v2/xlat_tables.mk
@@ -46,7 +47,7 @@ BL2_SOURCES		+=	common/desc_image_load.c			\
 				plat/imx/imx7/common/imx7_bl2_el3_common.c	\
 				plat/imx/imx7/common/imx7_helpers.S		\
 				plat/imx/imx7/common/imx7_image_load.c		\
-				plat/imx/imx7/common/imx7_io_storage.c		\
+				plat/imx/common/imx_io_storage.c		\
 				plat/imx/common/aarch32/imx_uart_console.S	\
 				${XLAT_TABLES_LIB_SRCS}
 
@@ -55,10 +56,11 @@ ifneq (${TRUSTED_BOARD_BOOT},0)
 include drivers/auth/mbedtls/mbedtls_crypto.mk
 include drivers/auth/mbedtls/mbedtls_x509.mk
 
-AUTH_SOURCES	:=	drivers/auth/auth_mod.c			\
-			drivers/auth/crypto_mod.c		\
-			drivers/auth/img_parser_mod.c		\
-			drivers/auth/tbbr/tbbr_cot_common.c
+AUTH_MK := drivers/auth/auth.mk
+$(info Including ${AUTH_MK})
+include ${AUTH_MK}
+
+AUTH_SOURCES	+=	drivers/auth/tbbr/tbbr_cot_common.c
 
 BL2_SOURCES		+=	${AUTH_SOURCES}					\
 				plat/common/tbbr/plat_tbbr.c			\
@@ -70,22 +72,21 @@ ROT_KEY             = $(BUILD_PLAT)/rot_key.pem
 ROTPK_HASH          = $(BUILD_PLAT)/rotpk_sha256.bin
 
 $(eval $(call add_define_val,ROTPK_HASH,'"$(ROTPK_HASH)"'))
-$(eval $(call MAKE_LIB_DIRS))
 
 $(BUILD_PLAT)/bl2/imx7_rotpk.o: $(ROTPK_HASH)
 
 certificates: $(ROT_KEY)
 
-$(ROT_KEY): | $(BUILD_PLAT)
-	@echo "  OPENSSL $@"
-	@if [ ! -f $(ROT_KEY) ]; then \
-		openssl genrsa 2048 > $@ 2>/dev/null; \
+$(ROT_KEY): | $$(@D)/
+	$(s)echo "  OPENSSL $@"
+	$(q)if [ ! -f $(ROT_KEY) ]; then \
+		${OPENSSL_BIN_PATH}/openssl genrsa 2048 > $@ 2>/dev/null; \
 	fi
 
-$(ROTPK_HASH): $(ROT_KEY)
-	@echo "  OPENSSL $@"
-	$(Q)openssl rsa -in $< -pubout -outform DER 2>/dev/null |\
-	openssl dgst -sha256 -binary > $@ 2>/dev/null
+$(ROTPK_HASH): $(ROT_KEY) | $$(@D)/
+	$(s)echo "  OPENSSL $@"
+	$(q)${OPENSSL_BIN_PATH}/openssl rsa -in $< -pubout -outform DER 2>/dev/null |\
+	${OPENSSL_BIN_PATH}/openssl dgst -sha256 -binary > $@ 2>/dev/null
 endif
 
 # Add the build options to pack BLx images and kernel device tree
@@ -108,4 +109,8 @@ endif
 
 ifeq (${ARCH},aarch64)
   $(error Error: AArch64 not supported on i.mx7)
+endif
+
+ifeq (${AARCH32_SP}, none)
+    $(error Variable AARCH32_SP has to be set for AArch32)
 endif

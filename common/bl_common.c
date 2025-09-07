@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2020, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2013-2024, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -12,6 +12,7 @@
 #include <arch_features.h>
 #include <arch_helpers.h>
 #include <common/bl_common.h>
+#include <common/build_message.h>
 #include <common/debug.h>
 #include <drivers/auth/auth_mod.h>
 #include <drivers/io/io_storage.h>
@@ -143,33 +144,13 @@ exit:
 	return io_result;
 }
 
-/*
- * Load an image and flush it out to main memory so that it can be executed
- * later by any CPU, regardless of cache and MMU state.
- */
-static int load_image_flush(unsigned int image_id,
-			    image_info_t *image_data)
-{
-	int rc;
-
-	rc = load_image(image_id, image_data);
-	if (rc == 0) {
-		flush_dcache_range(image_data->image_base,
-				   image_data->image_size);
-	}
-
-	return rc;
-}
-
-
 #if TRUSTED_BOARD_BOOT
 /*
  * This function uses recursion to authenticate the parent images up to the root
  * of trust.
  */
 static int load_auth_image_recursive(unsigned int image_id,
-				    image_info_t *image_data,
-				    int is_parent_image)
+				    image_info_t *image_data)
 {
 	int rc;
 	unsigned int parent_id;
@@ -177,7 +158,7 @@ static int load_auth_image_recursive(unsigned int image_id,
 	/* Use recursion to authenticate parent images */
 	rc = auth_mod_get_parent_id(image_id, &parent_id);
 	if (rc == 0) {
-		rc = load_auth_image_recursive(parent_id, image_data, 1);
+		rc = load_auth_image_recursive(parent_id, image_data);
 		if (rc != 0) {
 			return rc;
 		}
@@ -202,16 +183,6 @@ static int load_auth_image_recursive(unsigned int image_id,
 		return -EAUTH;
 	}
 
-	/*
-	 * Flush the image to main memory so that it can be executed later by
-	 * any CPU, regardless of cache and MMU state. This is only needed for
-	 * child images, not for the parents (certificates).
-	 */
-	if (is_parent_image == 0) {
-		flush_dcache_range(image_data->image_base,
-				   image_data->image_size);
-	}
-
 	return 0;
 }
 #endif /* TRUSTED_BOARD_BOOT */
@@ -221,11 +192,11 @@ static int load_auth_image_internal(unsigned int image_id,
 {
 #if TRUSTED_BOARD_BOOT
 	if (dyn_is_auth_disabled() == 0) {
-		return load_auth_image_recursive(image_id, image_data, 0);
+		return load_auth_image_recursive(image_id, image_data);
 	}
 #endif
 
-	return load_image_flush(image_id, image_data);
+	return load_image(image_id, image_data);
 }
 
 /*******************************************************************************
@@ -239,9 +210,37 @@ int load_auth_image(unsigned int image_id, image_info_t *image_data)
 {
 	int err;
 
-	do {
+	if ((plat_try_img_ops == NULL) || (plat_try_img_ops->next_instance == NULL)) {
 		err = load_auth_image_internal(image_id, image_data);
-	} while ((err != 0) && (plat_try_next_boot_source() != 0));
+	} else {
+		do {
+			err = load_auth_image_internal(image_id, image_data);
+			if (err != 0) {
+				if (plat_try_img_ops->next_instance(image_id) != 0) {
+					return err;
+				}
+			}
+		} while (err != 0);
+	}
+
+	if (err == 0) {
+		/*
+		 * If loading of the image gets passed (along with its
+		 * authentication in case of Trusted-Boot flow) then measure
+		 * it (if MEASURED_BOOT flag is enabled).
+		 */
+		err = plat_mboot_measure_image(image_id, image_data);
+		if (err != 0) {
+			return err;
+		}
+
+		/*
+		 * Flush the image to main memory so that it can be executed
+		 * later by any CPU, regardless of cache and MMU state.
+		 */
+		flush_dcache_range(image_data->image_base,
+				   image_data->image_size);
+	}
 
 	return err;
 }
@@ -269,4 +268,12 @@ void print_entry_point_info(const entry_point_info_t *ep_info)
 	PRINT_IMAGE_ARG(7);
 #endif
 #undef PRINT_IMAGE_ARG
+}
+
+/*
+ * This function is for returning the TF-A version
+ */
+const char *get_version(void)
+{
+	return build_version;
 }

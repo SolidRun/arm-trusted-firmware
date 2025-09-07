@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2018-2020, Renesas Electronics Corporation. All rights reserved.
+# Copyright (c) 2018-2022, Renesas Electronics Corporation. All rights reserved.
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
@@ -10,12 +10,16 @@ ARM_CCI_PRODUCT_ID		:= 500
 TRUSTED_BOARD_BOOT		:= 1
 RESET_TO_BL31			:= 1
 GENERATE_COT			:= 1
-BL2_AT_EL3			:= 1
+RESET_TO_BL2			:= 1
 ENABLE_SVE_FOR_NS		:= 0
-MULTI_CONSOLE_API		:= 1
 
 CRASH_REPORTING			:= 1
-HANDLE_EA_EL3_FIRST		:= 1
+HANDLE_EA_EL3_FIRST_NS		:= 1
+
+# This option gets enabled automatically if the TRUSTED_BOARD_BOOT
+# is set via root Makefile, but Renesas support Trusted-Boot without
+# Crypto module.
+override CRYPTO_SUPPORT		:= 0
 
 $(eval $(call add_define,PLAT_EXTRA_LD_SCRIPT))
 
@@ -65,10 +69,12 @@ $(eval $(call add_define,RCAR_CUT_30))
 ERRATA_A53_835769  := 1
 ERRATA_A53_843419  := 1
 ERRATA_A53_855873  := 1
+ERRATA_A53_1530924 := 1
 
 # Enable workarounds for selected Cortex-A57 erratas.
 ERRATA_A57_859972  := 1
 ERRATA_A57_813419  := 1
+ERRATA_A57_1319537 := 1
 
 PLAT_INCLUDES	:=	-Iplat/renesas/common/include/registers	\
 			-Iplat/renesas/common/include		\
@@ -77,9 +83,8 @@ PLAT_INCLUDES	:=	-Iplat/renesas/common/include/registers	\
 PLAT_BL_COMMON_SOURCES	:=	drivers/renesas/common/iic_dvfs/iic_dvfs.c \
 				plat/renesas/common/rcar_common.c
 
-RCAR_GIC_SOURCES	:=	drivers/arm/gic/common/gic_common.c	\
-				drivers/arm/gic/v2/gicv2_main.c		\
-				drivers/arm/gic/v2/gicv2_helpers.c	\
+include drivers/arm/gic/v2/gicv2.mk
+RCAR_GIC_SOURCES	:=	${GICV2_SOURCES} \
 				plat/common/plat_gicv2.c
 
 BL2_SOURCES	+=	${RCAR_GIC_SOURCES}				\
@@ -134,5 +139,4 @@ BL31_SOURCES	+=	${RCAR_GIC_SOURCES}				\
 			drivers/arm/cci/cci.c
 
 include lib/xlat_tables_v2/xlat_tables.mk
-include drivers/auth/mbedtls/mbedtls_crypto.mk
 PLAT_BL_COMMON_SOURCES	+=	${XLAT_TABLES_LIB_SRCS}

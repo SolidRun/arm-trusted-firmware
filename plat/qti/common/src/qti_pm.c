@@ -24,6 +24,12 @@
 #define QTI_LOCAL_PSTATE_WIDTH		4
 #define QTI_LOCAL_PSTATE_MASK		((1 << QTI_LOCAL_PSTATE_WIDTH) - 1)
 
+#if PSCI_OS_INIT_MODE
+#define QTI_LAST_AT_PLVL_MASK		(QTI_LOCAL_PSTATE_MASK <<	\
+					 (QTI_LOCAL_PSTATE_WIDTH *	\
+					  (PLAT_MAX_PWR_LVL + 1)))
+#endif
+
 /* Make composite power state parameter till level 0 */
 #define qti_make_pwrstate_lvl0(lvl0_state, type) \
 		(((lvl0_state) << PSTATE_ID_SHIFT) | ((type) << PSTATE_TYPE_SHIFT))
@@ -47,8 +53,7 @@
 #define QTI_CORE_PWRDN_EN_MASK		1
 
 /* cpu power control happens to be same across all CPUs */
-_DEFINE_SYSREG_WRITE_FUNC(cpu_pwrctrl_val, S3_0_C15_C2_7)
-_DEFINE_SYSREG_READ_FUNC(cpu_pwrctrl_val, S3_0_C15_C2_7)
+DEFINE_RENAME_SYSREG_RW_FUNCS(cpu_pwrctrl_val, S3_0_C15_C2_7)
 
 const unsigned int qti_pm_idle_states[] = {
 	qti_make_pwrstate_lvl0(QTI_LOCAL_STATE_OFF,
@@ -89,7 +94,12 @@ int qti_validate_power_state(unsigned int power_state,
 	 *  search if the number of entries justify the additional complexity.
 	 */
 	for (i = 0; !!qti_pm_idle_states[i]; i++) {
+#if PSCI_OS_INIT_MODE
+		if ((power_state & ~QTI_LAST_AT_PLVL_MASK) ==
+		    qti_pm_idle_states[i])
+#else
 		if (power_state == qti_pm_idle_states[i])
+#endif
 			break;
 	}
 
@@ -101,11 +111,14 @@ int qti_validate_power_state(unsigned int power_state,
 	state_id = psci_get_pstate_id(power_state);
 
 	/* Parse the State ID and populate the state info parameter */
-	while (state_id) {
-		req_state->pwr_domain_state[i++] = state_id &
+	for (i = QTI_PWR_LVL0; i <= PLAT_MAX_PWR_LVL; i++) {
+		req_state->pwr_domain_state[i] = state_id &
 		    QTI_LOCAL_PSTATE_MASK;
 		state_id >>= QTI_LOCAL_PSTATE_WIDTH;
 	}
+#if PSCI_OS_INIT_MODE
+	req_state->last_at_pwrlvl = state_id & QTI_LOCAL_PSTATE_MASK;
+#endif
 
 	return PSCI_E_SUCCESS;
 }
@@ -204,6 +217,7 @@ __dead2 void qti_domain_power_down_wfi(const psci_power_state_t *target_state)
 	/* For now just do WFI - add any target specific handling if needed */
 	psci_power_down_wfi();
 	/* We should never reach here */
+	panic();
 }
 
 static __dead2 void assert_ps_hold(void)
@@ -247,6 +261,10 @@ void qti_get_sys_suspend_power_state(psci_power_state_t *req_state)
 		    state_id & QTI_LOCAL_PSTATE_MASK;
 		state_id >>= QTI_LOCAL_PSTATE_WIDTH;
 	}
+
+#if PSCI_OS_INIT_MODE
+	req_state->last_at_pwrlvl = PLAT_MAX_PWR_LVL;
+#endif
 }
 
 /*
@@ -260,7 +278,7 @@ const plat_psci_ops_t plat_qti_psci_pm_ops = {
 	.pwr_domain_off = qti_node_power_off,
 	.pwr_domain_suspend = qti_node_suspend,
 	.pwr_domain_suspend_finish = qti_node_suspend_finish,
-	.pwr_domain_pwr_down_wfi = qti_domain_power_down_wfi,
+	.pwr_domain_pwr_down = qti_domain_power_down_wfi,
 	.system_off = qti_system_off,
 	.system_reset = qti_system_reset,
 	.get_node_hw_state = NULL,

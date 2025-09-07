@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2019, Intel Corporation. All rights reserved.
+ * Copyright (c) 2024, Altera Corporation. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -27,7 +28,7 @@
 #define AGX_MPFE_HMC_ADP_ECCCTRL1			0xf8011100
 #define AGX_MPFE_HMC_ADP_ECCCTRL2			0xf8011104
 #define AGX_MPFE_HMC_ADP_RSTHANDSHAKESTAT		0xf8011218
-#define AGX_MPFE_HMC_ADP_RSTHANDSHAKESTAT_SEQ2CORE	0x000000ff
+#define AGX_MPFE_HMC_ADP_RSTHANDSHAKESTAT_SEQ2CORE	0x0000000f
 #define AGX_MPFE_HMC_ADP_RSTHANDSHAKECTRL		0xf8011214
 
 
@@ -157,6 +158,19 @@
 
 #define AGX_SDRAM_0_LB_ADDR				0x0
 #define AGX_DDR_SIZE					0x40000000
+
+/* Macros */
+#define SOCFPGA_MEMCTRL_ECCCTRL1					0x008
+#define SOCFPGA_MEMCTRL_ERRINTEN					0x010
+#define SOCFPGA_MEMCTRL_ERRINTENS					0x014
+#define SOCFPGA_MEMCTRL_ERRINTENR					0x018
+#define SOCFPGA_MEMCTRL_INTMODE					0x01C
+#define SOCFPGA_MEMCTRL_INTSTAT					0x020
+#define SOCFPGA_MEMCTRL_DIAGINTTEST					0x024
+#define SOCFPGA_MEMCTRL_DERRADDRA					0x02C
+
+#define SOCFPGA_MEMCTRL(_reg)		(SOCFPGA_MEMCTRL_REG_BASE \
+						+ (SOCFPGA_MEMCTRL_##_reg))
 
 int init_hard_memory_controller(void);
 

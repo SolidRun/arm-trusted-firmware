@@ -1,12 +1,12 @@
 /*
- * Copyright (c) 2015-2019, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2015-2025, ARM Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
 #include <assert.h>
 
-#include <platform_def.h>
+#include "./include/rpi3_measured_boot.h"
 
 #include <arch_helpers.h>
 #include <common/bl_common.h>
@@ -18,6 +18,7 @@
 #include <drivers/generic_delay_timer.h>
 #include <drivers/rpi3/gpio/rpi3_gpio.h>
 #include <drivers/rpi3/sdhost/rpi3_sdhost.h>
+#include <platform_def.h>
 
 #include <rpi_shared.h>
 
@@ -27,6 +28,10 @@ static meminfo_t bl2_tzram_layout __aligned(CACHE_WRITEBACK_GRANULE);
 /* Data structure which holds the MMC info */
 static struct mmc_device_info mmc_info;
 
+/* Variables that hold the eventlog addr and size for use in BL2 Measured Boot */
+static uint8_t *event_log_start;
+static size_t event_log_size;
+
 static void rpi3_sdhost_setup(void)
 {
 	struct rpi3_sdhost_params params;
@@ -35,8 +40,16 @@ static void rpi3_sdhost_setup(void)
 	params.reg_base = RPI3_SDHOST_BASE;
 	params.bus_width = MMC_BUS_WIDTH_1;
 	params.clk_rate = 50000000;
+	params.clk_rate_initial = (RPI3_SDHOST_MAX_CLOCK / HC_CLOCKDIVISOR_MAXVAL);
 	mmc_info.mmc_dev_type = MMC_IS_SD_HC;
+	mmc_info.ocr_voltage = OCR_3_2_3_3 | OCR_3_3_3_4;
 	rpi3_sdhost_init(&params, &mmc_info);
+}
+
+void rpi3_mboot_fetch_eventlog_info(uint8_t **eventlog_addr, size_t *eventlog_size)
+{
+	*eventlog_addr = event_log_start;
+	*eventlog_size = event_log_size;
 }
 
 /*******************************************************************************
@@ -64,6 +77,10 @@ void bl2_early_platform_setup2(u_register_t arg0, u_register_t arg1,
 
 	/* Setup SDHost driver */
 	rpi3_sdhost_setup();
+
+	/* populate eventlog addr and size for use in bl2 mboot */
+	event_log_start = (uint8_t *)(uintptr_t)arg2;
+	event_log_size = arg3;
 
 	plat_rpi3_io_setup();
 }

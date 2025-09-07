@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014-2021, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2014-2025, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -9,7 +9,7 @@
 
 #include <drivers/arm/tzc400.h>
 #if TRUSTED_BOARD_BOOT
-#include <drivers/auth/mbedtls/mbedtls_config.h>
+#include MBEDTLS_CONFIG_FILE
 #endif
 #include <plat/arm/board/common/board_css_def.h>
 #include <plat/arm/board/common/v2m_def.h>
@@ -19,6 +19,9 @@
 #include <plat/common/common_def.h>
 
 #include "../juno_def.h"
+#ifdef JUNO_ETHOSN_TZMP1
+#include "../juno_ethosn_tzmp1_def.h"
+#endif
 
 /* Required platform porting definitions */
 /* Juno supports system power domain */
@@ -29,12 +32,12 @@
 #define PLATFORM_CORE_COUNT		(JUNO_CLUSTER0_CORE_COUNT + \
 					JUNO_CLUSTER1_CORE_COUNT)
 
-/* Cryptocell HW Base address */
-#define PLAT_CRYPTOCELL_BASE		UL(0x60050000)
-
 /*
  * Other platform porting definitions are provided by included headers
  */
+
+/* Define memory configuration for device tree files. */
+#define PLAT_ARM_HW_CONFIG_SIZE			U(0x8000)
 
 /*
  * Required ARM standard platform porting definitions
@@ -53,13 +56,26 @@
 #define PLAT_ARM_DRAM2_BASE		ULL(0x880000000)
 #define PLAT_ARM_DRAM2_SIZE		ULL(0x180000000)
 
-#define PLAT_HW_CONFIG_DTB_BASE		ULL(0x82000000)
-#define PLAT_HW_CONFIG_DTB_SIZE		ULL(0x00008000) /* 32KB */
+/* Range of kernel DTB load address */
+#define JUNO_DTB_DRAM_MAP_START		ULL(0x82000000)
+#define JUNO_DTB_DRAM_MAP_SIZE		ULL(0x00008000) /* 32KB */
 
 #define ARM_DTB_DRAM_NS			MAP_REGION_FLAT(		\
-					PLAT_HW_CONFIG_DTB_BASE,	\
-					PLAT_HW_CONFIG_DTB_SIZE,	\
+					JUNO_DTB_DRAM_MAP_START,	\
+					JUNO_DTB_DRAM_MAP_SIZE,		\
 					MT_MEMORY | MT_RO | MT_NS)
+
+#ifdef JUNO_ETHOSN_TZMP1
+#define JUNO_ETHOSN_PROT_FW_RO MAP_REGION_FLAT(     \
+		JUNO_ETHOSN_FW_TZC_PROT_DRAM2_BASE, \
+		JUNO_ETHOSN_FW_TZC_PROT_DRAM2_SIZE, \
+		MT_RO_DATA | MT_SECURE)
+
+#define JUNO_ETHOSN_PROT_FW_RW MAP_REGION_FLAT(     \
+		JUNO_ETHOSN_FW_TZC_PROT_DRAM2_BASE, \
+		JUNO_ETHOSN_FW_TZC_PROT_DRAM2_SIZE, \
+		MT_MEMORY | MT_RW | MT_SECURE)
+#endif
 
 /* virtual address used by dynamic mem_protect for chunk_base */
 #define PLAT_ARM_MEM_PROTEC_VA_FRAME	UL(0xc0000000)
@@ -101,11 +117,11 @@
 
 #ifdef IMAGE_BL2
 #ifdef SPD_opteed
-# define PLAT_ARM_MMAP_ENTRIES		11
+# define PLAT_ARM_MMAP_ENTRIES		13
 # define MAX_XLAT_TABLES		5
 #else
-# define PLAT_ARM_MMAP_ENTRIES		10
-# define MAX_XLAT_TABLES		4
+# define PLAT_ARM_MMAP_ENTRIES		11
+# define MAX_XLAT_TABLES		5
 #endif
 #endif
 
@@ -115,8 +131,8 @@
 #endif
 
 #ifdef IMAGE_BL31
-#  define PLAT_ARM_MMAP_ENTRIES		7
-#  define MAX_XLAT_TABLES		5
+# define PLAT_ARM_MMAP_ENTRIES		8
+# define MAX_XLAT_TABLES		6
 #endif
 
 #ifdef IMAGE_BL32
@@ -140,7 +156,7 @@
  */
 #if TRUSTED_BOARD_BOOT
 #if TF_MBEDTLS_KEY_ALG_ID == TF_MBEDTLS_RSA_AND_ECDSA
-# define PLAT_ARM_MAX_BL2_SIZE	(UL(0x1F000) - JUNO_BL2_ROMLIB_OPTIMIZATION)
+# define PLAT_ARM_MAX_BL2_SIZE	(UL(0x20000) - JUNO_BL2_ROMLIB_OPTIMIZATION)
 #elif TF_MBEDTLS_KEY_ALG_ID == TF_MBEDTLS_ECDSA
 # define PLAT_ARM_MAX_BL2_SIZE	(UL(0x1D000) - JUNO_BL2_ROMLIB_OPTIMIZATION)
 #else
@@ -195,12 +211,6 @@
 # define PLATFORM_STACK_SIZE		UL(0x440)
 #endif
 
-/*
- * Since free SRAM space is scant, enable the ASSERTION message size
- * optimization by fixing the PLAT_LOG_LEVEL_ASSERT to LOG_LEVEL_INFO (40).
- */
-#define PLAT_LOG_LEVEL_ASSERT		40
-
 /* CCI related constants */
 #define PLAT_ARM_CCI_BASE		UL(0x2c090000)
 #define PLAT_ARM_CCI_CLUSTER0_SL_IFACE_IX	4
@@ -239,12 +249,14 @@
 /* MHU related constants */
 #define PLAT_CSS_MHU_BASE		UL(0x2b1f0000)
 
+#if CSS_USE_SCMI_SDS_DRIVER
+/* Index of SDS region used in the communication between AP and SCP */
+#define SDS_SCP_AP_REGION_ID			U(0)
+#else
 /*
  * Base address of the first memory region used for communication between AP
  * and SCP. Used by the BOM and SCPI protocols.
- */
-#if !CSS_USE_SCMI_SDS_DRIVER
-/*
+ *
  * Note that this is located at the same address as SCP_BOOT_CFG_ADDR, which
  * means the SCP/AP configuration data gets overwritten when the AP initiates
  * communication with the SCP. The configuration data is expected to be a
@@ -254,7 +266,7 @@
 #define PLAT_CSS_SCP_COM_SHARED_MEM_BASE	(ARM_TRUSTED_SRAM_BASE + UL(0x80))
 #define PLAT_CSS_PRIMARY_CPU_SHIFT		8
 #define PLAT_CSS_PRIMARY_CPU_BIT_WIDTH		4
-#endif
+#endif /* CSS_USE_SCMI_SDS_DRIVER */
 
 /*
  * SCP_BL2 uses up whatever remaining space is available as it is loaded before
@@ -314,5 +326,19 @@
 
 /* Number of SCMI channels on the platform */
 #define PLAT_ARM_SCMI_CHANNEL_COUNT	U(1)
+
+/* Protected NSAIDs and memory regions for the Arm(R) Ethos(TM)-N NPU driver */
+#ifdef JUNO_ETHOSN_TZMP1
+#define ETHOSN_NPU_PROT_FW_NSAID		JUNO_ETHOSN_TZC400_NSAID_FW_PROT
+#define ETHOSN_NPU_PROT_RW_DATA_NSAID		JUNO_ETHOSN_TZC400_NSAID_DATA_RW_PROT
+#define ETHOSN_NPU_PROT_RO_DATA_NSAID		JUNO_ETHOSN_TZC400_NSAID_DATA_RO_PROT
+
+#define ETHOSN_NPU_NS_RW_DATA_NSAID		JUNO_ETHOSN_TZC400_NSAID_DATA_RW_NS
+#define ETHOSN_NPU_NS_RO_DATA_NSAID		JUNO_ETHOSN_TZC400_NSAID_DATA_RO_NS
+
+#define ETHOSN_NPU_FW_IMAGE_BASE		JUNO_ETHOSN_FW_TZC_PROT_DRAM2_BASE
+#define ETHOSN_NPU_FW_IMAGE_LIMIT \
+	(JUNO_ETHOSN_FW_TZC_PROT_DRAM2_BASE + JUNO_ETHOSN_FW_TZC_PROT_DRAM2_SIZE)
+#endif
 
 #endif /* PLATFORM_DEF_H */

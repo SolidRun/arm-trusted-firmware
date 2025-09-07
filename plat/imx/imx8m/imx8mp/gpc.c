@@ -1,5 +1,5 @@
 /*
- * Copyright 2019-2020 NXP
+ * Copyright 2019-2022 NXP
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -69,10 +69,11 @@ enum pu_domain_id {
 	HDMIMIX,
 	HDMI_PHY,
 	DDRMIX,
+	MAX_DOMAINS,
 };
 
 /* PU domain, add some hole to minimize the uboot change */
-static struct imx_pwr_domain pu_domains[20] = {
+static struct imx_pwr_domain pu_domains[MAX_DOMAINS] = {
 	[MIPI_PHY1] = IMX_PD_DOMAIN(MIPI_PHY1, false),
 	[PCIE_PHY] = IMX_PD_DOMAIN(PCIE_PHY, false),
 	[USB1_PHY] = IMX_PD_DOMAIN(USB1_PHY, true),
@@ -169,10 +170,15 @@ static void imx_noc_qos(unsigned int domain_id)
 	}
 }
 
-static void imx_gpc_pm_domain_enable(uint32_t domain_id, bool on)
+void imx_gpc_pm_domain_enable(uint32_t domain_id, bool on)
 {
 	struct imx_pwr_domain *pwr_domain = &pu_domains[domain_id];
 	unsigned int i;
+
+	/* validate the domain id */
+	if (domain_id >= MAX_DOMAINS) {
+		return;
+	}
 
 	if (domain_id == HSIOMIX) {
 		for (i = 0; i < ARRAY_SIZE(hsiomix_clk); i++) {
@@ -331,7 +337,7 @@ void imx_gpc_init(void)
 	/*
 	 * Set the CORE & SCU power up timing:
 	 * SW = 0x1, SW2ISO = 0x1;
-	 * the CPU CORE and SCU power up timming counter
+	 * the CPU CORE and SCU power up timing counter
 	 * is drived  by 32K OSC, each domain's power up
 	 * latency is (SW + SW2ISO) / 32768
 	 */
@@ -368,12 +374,20 @@ void imx_gpc_init(void)
 	mmio_clrbits_32(IMX_SRC_BASE + SRC_OTG1PHY_SCR, 0x1);
 	mmio_clrbits_32(IMX_SRC_BASE + SRC_OTG2PHY_SCR, 0x1);
 
-	/* enable all the power domain by default */
+	/* enable all clocks by default */
 	for (i = 0; i < 101; i++) {
 		mmio_write_32(IMX_CCM_BASE + CCGR(i), 0x3);
 	}
 
-	for (i = 0; i < 20; i++) {
-		imx_gpc_pm_domain_enable(i, true);
-	}
+	/* Depending on SKU, we may be lacking e.g. a VPU and shouldn't
+	 * access that domain here, because that would lockup the SoC.
+	 * Other i.MX8M variants don't initialize any power domains, but
+	 * for 8MP we have been enabling the USB power domains since the
+	 * beginning and stopping to do this now may render systems
+	 * unrecoverable. So we'll keep initializing just the USB power
+	 * domains instead of all of them like before.
+	 */
+	imx_gpc_pm_domain_enable(HSIOMIX, true);
+	imx_gpc_pm_domain_enable(USB1_PHY, true);
+	imx_gpc_pm_domain_enable(USB2_PHY, true);
 }

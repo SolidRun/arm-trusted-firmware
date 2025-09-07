@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2017-2025, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -8,124 +8,53 @@
 
 #include <arch.h>
 #include <arch_helpers.h>
+#include <lib/cassert.h>
 #include <lib/el3_runtime/pubsub.h>
 #include <lib/extensions/sve.h>
 
-bool sve_supported(void)
-{
-	uint64_t features;
+CASSERT(SVE_VECTOR_LEN <= 2048, assert_sve_vl_too_long);
+CASSERT(SVE_VECTOR_LEN >= 128, assert_sve_vl_too_short);
+CASSERT((SVE_VECTOR_LEN % 128) == 0, assert_sve_vl_granule);
 
-	features = read_id_aa64pfr0_el1() >> ID_AA64PFR0_SVE_SHIFT;
-	return (features & ID_AA64PFR0_SVE_MASK) == 1U;
+/*
+ * Converts SVE vector size restriction in bytes to LEN according to ZCR_EL3 documentation.
+ * VECTOR_SIZE = (LEN+1) * 128
+ */
+#define CONVERT_SVE_LENGTH(x)	(((x / 128) - 1))
+
+void sve_init_el3(void)
+{
+	/* Restrict maximum SVE vector length (SVE_VECTOR_LEN+1) * 128. */
+	write_zcr_el3(ZCR_EL3_LEN_MASK & CONVERT_SVE_LENGTH(SVE_VECTOR_LEN));
 }
 
-static void *disable_sve_hook(const void *arg)
+void sve_enable_per_world(per_world_context_t *per_world_ctx)
 {
-	uint64_t cptr;
+	u_register_t cptr_el3;
 
-	if (!sve_supported())
-		return (void *)-1;
-
-	/*
-	 * Disable SVE, SIMD and FP access for the Secure world.
-	 * As the SIMD/FP registers are part of the SVE Z-registers, any
-	 * use of SIMD/FP functionality will corrupt the SVE registers.
-	 * Therefore it is necessary to prevent use of SIMD/FP support
-	 * in the Secure world as well as SVE functionality.
-	 */
-	cptr = read_cptr_el3();
-	cptr = (cptr | TFP_BIT) & ~(CPTR_EZ_BIT);
-	write_cptr_el3(cptr);
-
-	/*
-	 * No explicit ISB required here as ERET to switch to Secure
-	 * world covers it
-	 */
-	return (void *)0;
+	/* Enable access to SVE functionality for all ELs. */
+	cptr_el3 = per_world_ctx->ctx_cptr_el3;
+	cptr_el3 = (cptr_el3 | CPTR_EZ_BIT) & ~(TFP_BIT);
+	per_world_ctx->ctx_cptr_el3 = cptr_el3;
 }
 
-static void *enable_sve_hook(const void *arg)
+void sve_init_el2_unused(void)
 {
-	uint64_t cptr;
-
-	if (!sve_supported())
-		return (void *)-1;
-
 	/*
-	 * Enable SVE, SIMD and FP access for the Non-secure world.
+	 * CPTR_EL2.TFP: Set to zero so that Non-secure accesses to Advanced
+	 *  SIMD and floating-point functionality from both Execution states do
+	 *  not trap to EL2.
 	 */
-	cptr = read_cptr_el3();
-	cptr = (cptr | CPTR_EZ_BIT) & ~(TFP_BIT);
-	write_cptr_el3(cptr);
-
-	/*
-	 * No explicit ISB required here as ERET to switch to Non-secure
-	 * world covers it
-	 */
-	return (void *)0;
+	write_cptr_el2(read_cptr_el2() & ~CPTR_EL2_TFP_BIT);
 }
 
-void sve_enable(bool el2_unused)
+void sve_disable_per_world(per_world_context_t *per_world_ctx)
 {
-	uint64_t cptr;
+	u_register_t reg;
 
-	if (!sve_supported())
-		return;
-
-#if CTX_INCLUDE_FPREGS
-	/*
-	 * CTX_INCLUDE_FPREGS is not supported on SVE enabled systems.
-	 */
-	assert(0);
-#endif
-	/*
-	 * Update CPTR_EL3 to enable access to SVE functionality for the
-	 * Non-secure world.
-	 * NOTE - assumed that CPTR_EL3.TFP is set to allow access to
-	 * the SIMD, floating-point and SVE support.
-	 *
-	 * CPTR_EL3.EZ: Set to 1 to enable access to SVE  functionality
-	 *  in the Non-secure world.
-	 */
-	cptr = read_cptr_el3();
-	cptr |= CPTR_EZ_BIT;
-	write_cptr_el3(cptr);
-
-	/*
-	 * Need explicit ISB here to guarantee that update to ZCR_ELx
-	 * and CPTR_EL2.TZ do not result in trap to EL3.
-	 */
-	isb();
-
-	/*
-	 * Ensure lower ELs have access to full vector length.
-	 */
-	write_zcr_el3(ZCR_EL3_LEN_MASK);
-
-	if (el2_unused) {
-		/*
-		 * Update CPTR_EL2 to enable access to SVE functionality
-		 * for Non-secure world, EL2 and Non-secure EL1 and EL0.
-		 * NOTE - assumed that CPTR_EL2.TFP is set to allow
-		 * access to the SIMD, floating-point and SVE support.
-		 *
-		 * CPTR_EL2.TZ: Set to 0 to enable access to SVE support
-		 *  for EL2 and Non-secure EL1 and EL0.
-		 */
-		cptr = read_cptr_el2();
-		cptr &= ~(CPTR_EL2_TZ_BIT);
-		write_cptr_el2(cptr);
-
-		/*
-		 * Ensure lower ELs have access to full vector length.
-		 */
-		write_zcr_el2(ZCR_EL2_LEN_MASK);
-	}
-	/*
-	 * No explicit ISB required here as ERET to switch to
-	 * Non-secure world covers it.
-	 */
+	/* Disable SVE and FPU since they share registers. */
+	reg = per_world_ctx->ctx_cptr_el3;
+	reg &= ~CPTR_EZ_BIT;	/* Trap SVE */
+	reg |= TFP_BIT;		/* Trap FPU/SIMD */
+	per_world_ctx->ctx_cptr_el3 = reg;
 }
-
-SUBSCRIBE_TO_EVENT(cm_exited_normal_world, disable_sve_hook);
-SUBSCRIBE_TO_EVENT(cm_entering_normal_world, enable_sve_hook);

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2020, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2013-2024, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -61,8 +61,10 @@
 
 #if LOG_LEVEL >= LOG_LEVEL_ERROR
 # define ERROR(...)	tf_log(LOG_MARKER_ERROR __VA_ARGS__)
+# define ERROR_NL()	tf_log_newline(LOG_MARKER_ERROR)
 #else
 # define ERROR(...)	no_tf_log(LOG_MARKER_ERROR __VA_ARGS__)
+# define ERROR_NL()
 #endif
 
 #if LOG_LEVEL >= LOG_LEVEL_NOTICE
@@ -89,26 +91,50 @@
 # define VERBOSE(...)	no_tf_log(LOG_MARKER_VERBOSE __VA_ARGS__)
 #endif
 
+#if EARLY_CONSOLE
+#define EARLY_ERROR(...)	ERROR(__VA_ARGS__)
+#else /* !EARLY_CONSOLE */
+#define EARLY_ERROR(...)	no_tf_log(LOG_MARKER_ERROR __VA_ARGS__)
+#endif /* EARLY_CONSOLE */
+
+const char *get_el_str(unsigned int el);
+
 #if ENABLE_BACKTRACE
 void backtrace(const char *cookie);
-const char *get_el_str(unsigned int el);
 #else
 #define backtrace(x)
 #endif
 
-void __dead2 do_panic(void);
+void __dead2 el3_panic(void);
+void __dead2 elx_panic(void);
 
 #define panic()				\
 	do {				\
 		backtrace(__func__);	\
 		console_flush();	\
-		do_panic();		\
+		el3_panic();		\
 	} while (false)
+
+#if CRASH_REPORTING
+/* --------------------------------------------------------------------
+ * do_lower_el_panic assumes it's called due to a panic from a lower EL
+ * This call will not return.
+ * --------------------------------------------------------------------
+ */
+#define	lower_el_panic()		\
+	do {				\
+		console_flush();	\
+		elx_panic();		\
+	} while (false)
+#else
+#define	lower_el_panic()
+#endif
 
 /* Function called when stack protection check code detects a corrupted stack */
 void __dead2 __stack_chk_fail(void);
 
 void tf_log(const char *fmt, ...) __printflike(1, 2);
+void tf_log_newline(const char log_fmt[2]);
 void tf_log_set_max_level(unsigned int log_level);
 
 #endif /* __ASSEMBLER__ */

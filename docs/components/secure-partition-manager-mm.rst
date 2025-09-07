@@ -4,17 +4,10 @@ Secure Partition Manager (MM)
 Foreword
 ========
 
-Two implementations of a Secure Partition Manager co-exist in the TF-A codebase:
-
--  SPM based on the FF-A specification (:ref:`Secure Partition Manager`).
--  SPM based on the MM interface.
-
-Both implementations differ in their architectures and only one can be selected
-at build time.
-
-This document describes the latter implementation where the Secure Partition Manager
-resides at EL3 and management services run from isolated Secure Partitions at S-EL0.
-The communication protocol is established through the Management Mode (MM) interface.
+This document describes the implementation where the Secure Partition Manager
+resides at EL3 and management services run from isolated Secure Partitions at
+S-EL0. The communication protocol is established through the Management Mode
+(MM) interface.
 
 Background
 ==========
@@ -134,8 +127,8 @@ Interface). This will be referred to as the *Standalone MM Secure Partition* in
 the rest of this document.
 
 To enable SPM support in TF-A, the source code must be compiled with the build
-flag ``SPM_MM=1``, along with ``EL3_EXCEPTION_HANDLING=1``. On Arm
-platforms the build option ``ARM_BL31_IN_DRAM`` must be set to 1. Also, the
+flag ``SPM_MM=1``, along with ``EL3_EXCEPTION_HANDLING=1`` and ``ENABLE_SVE_FOR_NS=0``.
+On Arm platforms the build option ``ARM_BL31_IN_DRAM`` must be set to 1. Also, the
 location of the binary that contains the BL32 image
 (``BL32=path/to/image.bin``) must be specified.
 
@@ -148,7 +141,7 @@ image in the FIP:
 .. code:: shell
 
     BL32=path/to/standalone/mm/sp BL33=path/to/bl33.bin \
-    make PLAT=fvp SPM_MM=1 EL3_EXCEPTION_HANDLING=1 ARM_BL31_IN_DRAM=1 all fip
+    make PLAT=fvp SPM_MM=1 EL3_EXCEPTION_HANDLING=1 ENABLE_SVE_FOR_NS=0 ARM_BL31_IN_DRAM=1 all fip
 
 Describing Secure Partition resources
 -------------------------------------

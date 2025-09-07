@@ -1,21 +1,37 @@
 /*
- * Copyright (c) 2019, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2019-2023, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2019-2023, Intel Corporation. All rights reserved.
+ * Copyright (c) 2024, Altera Corporation. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
 #include <arch_helpers.h>
 #include <common/debug.h>
+
+#ifndef GICV3_SUPPORT_GIC600
 #include <drivers/arm/gicv2.h>
+#else
+#include <drivers/arm/gicv3.h>
+#endif
 #include <lib/mmio.h>
 #include <lib/psci/psci.h>
 #include <plat/common/platform.h>
-
+#if PLATFORM_MODEL == PLAT_SOCFPGA_AGILEX5
+#include "agilex5_cache.h"
+#endif
+#include "ccu/ncore_ccu.h"
 #include "socfpga_mailbox.h"
 #include "socfpga_plat_def.h"
+#include "socfpga_private.h"
 #include "socfpga_reset_manager.h"
+#include "socfpga_sip_svc.h"
+#include "socfpga_system_manager.h"
 
-
+#if PLATFORM_MODEL == PLAT_SOCFPGA_AGILEX5
+void socfpga_wakeup_secondary_cpu(unsigned int cpu_id);
+extern void plat_secondary_cold_boot_setup(void);
+#endif
 
 /*******************************************************************************
  * plat handler called when a CPU is about to enter standby.
@@ -38,16 +54,35 @@ void socfpga_cpu_standby(plat_local_state_t cpu_state)
 int socfpga_pwr_domain_on(u_register_t mpidr)
 {
 	unsigned int cpu_id = plat_core_pos_by_mpidr(mpidr);
+#if PLATFORM_MODEL == PLAT_SOCFPGA_AGILEX5
+	/* TODO: Add in CPU FUSE from SDM */
+#else
+	uint32_t psci_boot = 0x00;
 
 	VERBOSE("%s: mpidr: 0x%lx\n", __func__, mpidr);
+#endif
 
 	if (cpu_id == -1)
 		return PSCI_E_INTERN_FAIL;
 
+#if PLATFORM_MODEL != PLAT_SOCFPGA_AGILEX5
+	if (cpu_id == 0x00) {
+		psci_boot = mmio_read_32(SOCFPGA_SYSMGR(BOOT_SCRATCH_COLD_8));
+		psci_boot |= 0x80000; /* bit 19 */
+		mmio_write_32(SOCFPGA_SYSMGR(BOOT_SCRATCH_COLD_8), psci_boot);
+	}
+
 	mmio_write_64(PLAT_CPUID_RELEASE, cpu_id);
+#endif
 
 	/* release core reset */
+#if PLATFORM_MODEL == PLAT_SOCFPGA_AGILEX5
+	bl31_plat_set_secondary_cpu_entrypoint(cpu_id);
+#else
 	mmio_setbits_32(SOCFPGA_RSTMGR(MPUMODRST), 1 << cpu_id);
+	mmio_write_64(PLAT_CPUID_RELEASE, cpu_id);
+#endif
+
 	return PSCI_E_SUCCESS;
 }
 
@@ -62,7 +97,12 @@ void socfpga_pwr_domain_off(const psci_power_state_t *target_state)
 			__func__, i, target_state->pwr_domain_state[i]);
 
 	/* Prevent interrupts from spuriously waking up this cpu */
+#ifdef GICV3_SUPPORT_GIC600
+	gicv3_cpuif_disable(plat_my_core_pos());
+#else
 	gicv2_cpuif_disable();
+#endif
+
 }
 
 /*******************************************************************************
@@ -71,15 +111,18 @@ void socfpga_pwr_domain_off(const psci_power_state_t *target_state)
  ******************************************************************************/
 void socfpga_pwr_domain_suspend(const psci_power_state_t *target_state)
 {
+#if PLATFORM_MODEL != PLAT_SOCFPGA_AGILEX5
 	unsigned int cpu_id = plat_my_core_pos();
+#endif
 
 	for (size_t i = 0; i <= PLAT_MAX_PWR_LVL; i++)
 		VERBOSE("%s: target_state->pwr_domain_state[%lu]=%x\n",
 			__func__, i, target_state->pwr_domain_state[i]);
 
+#if PLATFORM_MODEL != PLAT_SOCFPGA_AGILEX5
 	/* assert core reset */
 	mmio_setbits_32(SOCFPGA_RSTMGR(MPUMODRST), 1 << cpu_id);
-
+#endif
 }
 
 /*******************************************************************************
@@ -93,12 +136,18 @@ void socfpga_pwr_domain_on_finish(const psci_power_state_t *target_state)
 		VERBOSE("%s: target_state->pwr_domain_state[%lu]=%x\n",
 			__func__, i, target_state->pwr_domain_state[i]);
 
+	/* Enable the gic cpu interface */
+#ifdef GICV3_SUPPORT_GIC600
+	gicv3_rdistif_init(plat_my_core_pos());
+	gicv3_cpuif_enable(plat_my_core_pos());
+#else
 	/* Program the gic per-cpu distributor or re-distributor interface */
 	gicv2_pcpu_distif_init();
 	gicv2_set_pe_target_mask(plat_my_core_pos());
 
 	/* Enable the gic cpu interface */
 	gicv2_cpuif_enable();
+#endif
 }
 
 /*******************************************************************************
@@ -110,14 +159,18 @@ void socfpga_pwr_domain_on_finish(const psci_power_state_t *target_state)
  ******************************************************************************/
 void socfpga_pwr_domain_suspend_finish(const psci_power_state_t *target_state)
 {
+#if PLATFORM_MODEL != PLAT_SOCFPGA_AGILEX5
 	unsigned int cpu_id = plat_my_core_pos();
+#endif
 
 	for (size_t i = 0; i <= PLAT_MAX_PWR_LVL; i++)
 		VERBOSE("%s: target_state->pwr_domain_state[%lu]=%x\n",
 			__func__, i, target_state->pwr_domain_state[i]);
 
+#if PLATFORM_MODEL != PLAT_SOCFPGA_AGILEX5
 	/* release core reset */
 	mmio_clrbits_32(SOCFPGA_RSTMGR(MPUMODRST), 1 << cpu_id);
+#endif
 }
 
 /*******************************************************************************
@@ -136,13 +189,22 @@ static void __dead2 socfpga_system_reset(void)
 {
 	uint32_t addr_buf[2];
 
-	memcpy(addr_buf, &intel_rsu_update_address,
-			sizeof(intel_rsu_update_address));
+	memcpy_s(addr_buf, sizeof(intel_rsu_update_address),
+		&intel_rsu_update_address, sizeof(intel_rsu_update_address));
 
-	if (intel_rsu_update_address)
+	if (intel_rsu_update_address) {
 		mailbox_rsu_update(addr_buf);
-	else
+	} else {
+#if CACHE_FLUSH
+		/* ATF Flush and Invalidate Cache */
+		dcsw_op_all(DCCISW);
+		invalidate_cache_low_el();
+#if PLATFORM_MODEL == PLAT_SOCFPGA_AGILEX5
+		flush_l3_dcache();
+#endif
+#endif
 		mailbox_reset_cold();
+	}
 
 	while (1)
 		wfi();
@@ -151,11 +213,34 @@ static void __dead2 socfpga_system_reset(void)
 static int socfpga_system_reset2(int is_vendor, int reset_type,
 					u_register_t cookie)
 {
-	/* disable cpuif */
-	gicv2_cpuif_disable();
 
-	/* Store magic number */
-	mmio_write_32(L2_RESET_DONE_REG, L2_RESET_DONE_STATUS);
+#if CACHE_FLUSH
+	/*
+	 * ATF Flush and Invalidate Cache due to hardware limitation
+	 * of auto Flush and Invalidate Cache.
+	 */
+	dcsw_op_all(DCCISW);
+	invalidate_cache_low_el();
+#endif
+
+	/* Set warm reset request bit before issuing the command to SDM. */
+	mmio_clrsetbits_32(L2_RESET_DONE_REG, BS_REG_MAGIC_KEYS_MASK,
+			   L2_RESET_DONE_STATUS);
+
+#if PLATFORM_MODEL == PLAT_SOCFPGA_AGILEX5
+	mailbox_reset_warm(reset_type);
+#else
+	if (cold_reset_for_ecc_dbe()) {
+		mailbox_reset_cold();
+	}
+#endif
+
+	/* disable cpuif */
+#ifdef GICV3_SUPPORT_GIC600
+	gicv3_cpuif_disable(plat_my_core_pos());
+#else
+	gicv2_cpuif_disable();
+#endif
 
 	/* Increase timeout */
 	mmio_write_32(SOCFPGA_RSTMGR(HDSKTIMEOUT), 0xffffff);
@@ -163,8 +248,10 @@ static int socfpga_system_reset2(int is_vendor, int reset_type,
 	/* Enable handshakes */
 	mmio_setbits_32(SOCFPGA_RSTMGR(HDSKEN), RSTMGR_HDSKEN_SET);
 
+#if PLATFORM_MODEL != PLAT_SOCFPGA_AGILEX5
 	/* Reset L2 module */
 	mmio_setbits_32(SOCFPGA_RSTMGR(COLDMODRST), 0x100);
+#endif
 
 	while (1)
 		wfi();

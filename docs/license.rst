@@ -81,9 +81,48 @@ license text is included in those source files.
    terms of the MIT license. These files are:
 
    -  ``include/dt-bindings/interrupt-controller/arm-gic.h``
+   -  ``include/dt-bindings/interrupt-controller/irq.h``
 
    See the original `Linux MIT license`_.
+
+-  Some source files originating from the `Open Profile for DICE`_ project.
+   These files are licensed under the Apache License, Version 2.0, which is a
+   permissive license compatible with BSD-3-Clause. Any contributions to this
+   code must also be made under the terms of `Apache License 2.0`_.
+   These files are:
+
+   -  ``include/lib/dice/dice.h``
+
+-  Some source files originating from the `pydevicetree`_ project.
+   These files are licensed under the Apache License, Version 2.0, which is a
+   permissive license compatible with BSD-3-Clause. Any contributions to this
+   code must also be made under the terms of `Apache License 2.0`_.
+   These files are:
+
+   -  ``tools/cot_dt2c/cot_dt2c/pydevicetree/ast/__init__.py``
+   -  ``tools/cot_dt2c/cot_dt2c/pydevicetree/ast/directive.py``
+   -  ``tools/cot_dt2c/cot_dt2c/pydevicetree/ast/helpers.py``
+   -  ``tools/cot_dt2c/cot_dt2c/pydevicetree/ast/node.py``
+   -  ``tools/cot_dt2c/cot_dt2c/pydevicetree/ast/property.py``
+   -  ``tools/cot_dt2c/cot_dt2c/pydevicetree/ast/reference.py``
+   -  ``tools/cot_dt2c/cot_dt2c/pydevicetree/source/__init__.py``
+   -  ``tools/cot_dt2c/cot_dt2c/pydevicetree/source/grammar.py``
+   -  ``tools/cot_dt2c/cot_dt2c/pydevicetree/source/parser.py``
+   -  ``tools/cot_dt2c/cot_dt2c/pydevicetree/__init__.py``
+
+-  Some source files originating from the `edk2`_ project.
+   These files are licensed under the BSD-2-Clause. Any contributions to this
+   code must also be made under the terms of BSD-2-Clause.
+   These files are:
+
+   -  ``lib/hob/hob.c``
+   -  ``include/lib/hob/mmram.h``
+   -  ``include/lib/hob/mpinfo.h``
 
 .. _FreeBSD: http://www.freebsd.org
 .. _Linux MIT license: https://raw.githubusercontent.com/torvalds/linux/master/LICENSES/preferred/MIT
 .. _SCC: http://www.simple-cc.org/
+.. _Open Profile for DICE: https://pigweed.googlesource.com/open-dice/
+.. _Apache License 2.0: https://www.apache.org/licenses/LICENSE-2.0.txt
+.. _pydevicetree: https://pypi.org/project/pydevicetree/
+.. _edk2: https://github.com/tianocore/edk2

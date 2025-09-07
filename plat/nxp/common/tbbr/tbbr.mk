@@ -1,5 +1,5 @@
 #
-# Copyright 2020 NXP
+# Copyright 2020-2022 NXP
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
@@ -13,6 +13,12 @@ include $(PLAT_DRIVERS_PATH)/csu/csu.mk
 CSF_FILE		:=	input_blx_ch${CHASSIS}
 BL2_CSF_FILE		:=	input_bl2_ch${CHASSIS}
 else
+ifeq ($(CHASSIS), 3)
+CSF_FILE		:=	input_blx_ch${CHASSIS}
+BL2_CSF_FILE		:=	input_bl2_ch${CHASSIS}
+PBI_CSF_FILE		:=	input_pbi_ch${CHASSIS}
+$(eval $(call add_define, CSF_HDR_CH3))
+else
 ifeq ($(CHASSIS), 3_2)
 CSF_FILE		:=	input_blx_ch3
 BL2_CSF_FILE		:=	input_bl2_ch${CHASSIS}
@@ -20,6 +26,7 @@ PBI_CSF_FILE		:=	input_pbi_ch${CHASSIS}
 $(eval $(call add_define, CSF_HDR_CH3))
 else
     $(error -> CHASSIS not set!)
+endif
 endif
 endif
 
@@ -123,25 +130,27 @@ else
     $(BUILD_PLAT)/bl2/nxp_rotpk.o: $(ROTPK_HASH)
 
     certificates: $(ROT_KEY)
-    $(ROT_KEY): | $(BUILD_PLAT)
-	@echo "  OPENSSL $@"
-	@if [ ! -f $(ROT_KEY) ]; then \
-		openssl genrsa 2048 > $@ 2>/dev/null; \
+    $(ROT_KEY): | $$(@D)/
+	$(s)echo "  OPENSSL $@"
+	$(q)if [ ! -f $(ROT_KEY) ]; then \
+		${OPENSSL_BIN_PATH}/openssl genrsa 2048 > $@ 2>/dev/null; \
 	fi
 
-    $(ROTPK_HASH): $(ROT_KEY)
-	@echo "  OPENSSL $@"
-	$(Q)openssl rsa -in $< -pubout -outform DER 2>/dev/null |\
-	openssl dgst -sha256 -binary > $@ 2>/dev/null
+    $(ROTPK_HASH): $(ROT_KEY) | $$(@D)/
+	$(s)echo "  OPENSSL $@"
+	$(q)${OPENSSL_BIN_PATH}/openssl rsa -in $< -pubout -outform DER 2>/dev/null |\
+	${OPENSSL_BIN_PATH}/openssl dgst -sha256 -binary > $@ 2>/dev/null
 
 endif #MBEDTLS_DIR
 
 PLAT_INCLUDES		+=	-Iinclude/common/tbbr
 
 # Generic files for authentication framework
-TBBR_SOURCES		+=	drivers/auth/auth_mod.c		\
-				drivers/auth/crypto_mod.c	\
-				drivers/auth/img_parser_mod.c	\
+AUTH_MK := drivers/auth/auth.mk
+$(info Including ${AUTH_MK})
+include ${AUTH_MK}
+
+TBBR_SOURCES		+=	${AUTH_SOURCES}			\
 				plat/common/tbbr/plat_tbbr.c	\
 				${PLAT_TBBR_SOURCES}
 

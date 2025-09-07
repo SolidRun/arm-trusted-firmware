@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: (GPL-2.0+ OR BSD-3-Clause)
 /*
- * Copyright (C) STMicroelectronics 2017 - All Rights Reserved
+ * Copyright (c) 2017-2024, STMicroelectronics - All Rights Reserved
  * Author: Ludovic Barre <ludovic.barre@st.com> for STMicroelectronics.
  */
 #include <dt-bindings/interrupt-controller/arm-gic.h>
@@ -19,6 +19,8 @@
 			compatible = "arm,cortex-a7";
 			device_type = "cpu";
 			reg = <0>;
+			nvmem-cells = <&part_number_otp>;
+			nvmem-cell-names = "part_number";
 		};
 	};
 
@@ -125,8 +127,8 @@
 			compatible = "st,stm32mp15-i2c";
 			reg = <0x40013000 0x400>;
 			interrupt-names = "event", "error";
-			interrupts = <&exti 22 IRQ_TYPE_LEVEL_HIGH>,
-				     <&intc GIC_SPI 34 IRQ_TYPE_LEVEL_HIGH>;
+			interrupts-extended = <&exti 22 IRQ_TYPE_LEVEL_HIGH>,
+					      <&intc GIC_SPI 34 IRQ_TYPE_LEVEL_HIGH>;
 			clocks = <&rcc I2C2_K>;
 			resets = <&rcc I2C2_R>;
 			#address-cells = <1>;
@@ -174,7 +176,7 @@
 		};
 
 		usbotg_hs: usb-otg@49000000 {
-			compatible = "st,stm32mp1-hsotg", "snps,dwc2";
+			compatible = "st,stm32mp15-hsotg", "snps,dwc2";
 			reg = <0x49000000 0x10000>;
 			clocks = <&rcc USBO_K>;
 			clock-names = "otg";
@@ -319,12 +321,11 @@
 			status = "disabled";
 		};
 
-		sdmmc1: sdmmc@58005000 {
+		sdmmc1: mmc@58005000 {
 			compatible = "st,stm32-sdmmc2", "arm,pl18x", "arm,primecell";
 			arm,primecell-periphid = <0x00253180>;
-			reg = <0x58005000 0x1000>, <0x58006000 0x1000>;
+			reg = <0x58005000 0x1000>;
 			interrupts = <GIC_SPI 49 IRQ_TYPE_LEVEL_HIGH>;
-			interrupt-names = "cmd_irq";
 			clocks = <&rcc SDMMC1_K>;
 			clock-names = "apb_pclk";
 			resets = <&rcc SDMMC1_R>;
@@ -334,12 +335,11 @@
 			status = "disabled";
 		};
 
-		sdmmc2: sdmmc@58007000 {
+		sdmmc2: mmc@58007000 {
 			compatible = "st,stm32-sdmmc2", "arm,pl18x", "arm,primecell";
 			arm,primecell-periphid = <0x00253180>;
-			reg = <0x58007000 0x1000>, <0x58008000 0x1000>;
+			reg = <0x58007000 0x1000>;
 			interrupts = <GIC_SPI 124 IRQ_TYPE_LEVEL_HIGH>;
-			interrupt-names = "cmd_irq";
 			clocks = <&rcc SDMMC2_K>;
 			clock-names = "apb_pclk";
 			resets = <&rcc SDMMC2_R>;
@@ -356,6 +356,24 @@
 			clocks = <&rcc IWDG2>, <&rcc CK_LSI>;
 			clock-names = "pclk", "lsi";
 			status = "disabled";
+		};
+
+		ddr: ddr@5a003000 {
+			compatible = "st,stm32mp1-ddr";
+			reg = <0x5A003000 0x550 0x5A004000 0x234>;
+			clocks = <&rcc AXIDCG>,
+				 <&rcc DDRC1>,
+				 <&rcc DDRC2>,
+				 <&rcc DDRPHYC>,
+				 <&rcc DDRCAPB>,
+				 <&rcc DDRPHYCAPB>;
+			clock-names = "axidcg",
+				      "ddrc1",
+				      "ddrc2",
+				      "ddrphyc",
+				      "ddrcapb",
+				      "ddrphycapb";
+			status = "okay";
 		};
 
 		usbphyc: usbphyc@5a006000 {
@@ -434,16 +452,45 @@
 			status = "disabled";
 		};
 
-		bsec: nvmem@5c005000 {
+		bsec: efuse@5c005000 {
 			compatible = "st,stm32mp15-bsec";
 			reg = <0x5c005000 0x400>;
 			#address-cells = <1>;
 			#size-cells = <1>;
+
+			cfg0_otp: cfg0-otp@0 {
+				reg = <0x0 0x1>;
+			};
+			part_number_otp: part-number-otp@4 {
+				reg = <0x4 0x1>;
+			};
+			monotonic_otp: monotonic-otp@10 {
+				reg = <0x10 0x4>;
+			};
+			nand_otp: nand-otp@24 {
+				reg = <0x24 0x4>;
+			};
+			uid_otp: uid-otp@34 {
+				reg = <0x34 0xc>;
+			};
+			package_otp: package-otp@40 {
+				reg = <0x40 0x4>;
+			};
+			hw2_otp: hw2-otp@48 {
+				reg = <0x48 0x4>;
+			};
 			ts_cal1: calib@5c {
 				reg = <0x5c 0x2>;
 			};
 			ts_cal2: calib@5e {
 				reg = <0x5e 0x2>;
+			};
+			pkh_otp: pkh-otp@60 {
+				reg = <0x60 0x20>;
+			};
+			ethernet_mac_address: mac@e4 {
+				reg = <0xe4 0x8>;
+				st,non-secure-otp;
 			};
 		};
 
@@ -451,8 +498,6 @@
 			compatible = "st,stm32-etzpc";
 			reg = <0x5C007000 0x400>;
 			clocks = <&rcc TZPC>;
-			status = "disabled";
-			secure-status = "okay";
 		};
 
 		stgen: stgen@5c008000 {
@@ -476,7 +521,7 @@
 		};
 
 		tamp: tamp@5c00a000 {
-			compatible = "st,stm32-tamp", "simple-bus", "syscon", "simple-mfd";
+			compatible = "st,stm32-tamp", "syscon", "simple-mfd";
 			reg = <0x5c00a000 0x400>;
 			secure-interrupts = <GIC_SPI 197 IRQ_TYPE_LEVEL_HIGH>;
 			clocks = <&rcc RTCAPB>;
@@ -486,14 +531,13 @@
 		 * Break node order to solve dependency probe issue between
 		 * pinctrl and exti.
 		 */
-		pinctrl: pin-controller@50002000 {
+		pinctrl: pinctrl@50002000 {
 			#address-cells = <1>;
 			#size-cells = <1>;
 			compatible = "st,stm32mp157-pinctrl";
 			ranges = <0 0x50002000 0xa400>;
 			interrupt-parent = <&exti>;
 			st,syscfg = <&exti 0x60 0xff>;
-			pins-are-numbered;
 
 			gpioa: gpio@50002000 {
 				gpio-controller;
@@ -617,12 +661,11 @@
 			};
 		};
 
-		pinctrl_z: pin-controller-z@54004000 {
+		pinctrl_z: pinctrl@54004000 {
 			#address-cells = <1>;
 			#size-cells = <1>;
 			compatible = "st,stm32mp157-z-pinctrl";
 			ranges = <0 0x54004000 0x400>;
-			pins-are-numbered;
 			interrupt-parent = <&exti>;
 			st,syscfg = <&exti 0x60 0xff>;
 

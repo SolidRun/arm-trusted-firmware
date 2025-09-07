@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2013-2020, ARM Limited and Contributors. All rights reserved.
- * Copyright (c) 2015-2019, Renesas Electronics Corporation. All rights reserved.
+ * Copyright (c) 2013-2023, Arm Limited and Contributors. All rights reserved.
+ * Copyright (c) 2015-2023, Renesas Electronics Corporation. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -126,7 +126,7 @@ warm_reset:
 exit:
 	ret	x9
 _panic:
-	b	do_panic
+	b	el3_panic
 #endif
 
 endfunc plat_get_my_entrypoint
@@ -172,15 +172,16 @@ func bl2_enter_bl31
          * BL31 will initialize the address space according to its
          * own requirement.
          */
-#if RCAR_BL2_DCACHE == 1
 	/* Disable mmu and data cache */
 	bl	disable_mmu_el3
+#if RCAR_BL2_DCACHE == 1
 	/* Data cache clean and invalidate */
 	mov	x0, #DCCISW
 	bl	dcsw_op_all
+#endif /* RCAR_BL2_DCACHE == 1 */
 	/* TLB invalidate all, EL3 */
 	tlbi	alle3
-#endif /* RCAR_BL2_DCACHE == 1 */
+
 	bl	disable_mmu_icache_el3
 	/* Invalidate instruction cache */
 	ic	iallu
@@ -284,7 +285,11 @@ func plat_crash_console_putc
 	str	x3, [sp, #-16]!
 	str	x4, [sp, #-16]!
 	str	x5, [sp, #-16]!
+	str	x6, [sp, #-16]!
+	str	x7, [sp, #-16]!
 	bl	console_rcar_putc
+	ldr	x7, [sp], #16
+	ldr	x6, [sp], #16
 	ldr	x5, [sp], #16
 	ldr	x4, [sp], #16
 	ldr	x3, [sp], #16

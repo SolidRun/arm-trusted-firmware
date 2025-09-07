@@ -79,7 +79,7 @@ func console_cdns_register
 
 	mov	x0, x6
 	mov	x30, x7
-	finish_console_register cdns putc=1, getc=1, flush=1
+	finish_console_register cdns putc=1, getc=ENABLE_CONSOLE_GETC, flush=1
 
 register_fail:
 	ret	x7
@@ -197,7 +197,14 @@ func console_cdns_core_flush
 	cmp	x0, #0
 	ASM_ASSERT(ne)
 #endif /* ENABLE_ASSERTIONS */
-	/* Placeholder */
+	/* Loop until the transmit FIFO is empty */
+check_txfifo_empty:
+	ldr     w2, [x0, #R_UART_SR]
+	tbz     w2, #UART_SR_INTR_TEMPTY_BIT, check_txfifo_empty
+	/* Wait until the Transmit is Inactive */
+check_tx_inactive_state:
+	ldr     w2, [x0, #R_UART_SR]
+	tbnz    w2, #UART_SR_INTR_TACTIVE_BIT, check_tx_inactive_state
 	ret
 endfunc console_cdns_core_flush
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2021, Renesas Electronics Corporation. All rights reserved.
+ * Copyright (c) 2015-2023, Renesas Electronics Corporation. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -84,6 +84,29 @@ typedef struct {
 #define RCAR_COUNT_LOAD_BL33		(2U)
 #define RCAR_COUNT_LOAD_BL33X		(3U)
 
+#define CHECK_IMAGE_AREA_CNT (7U)
+#define BOOT_BL2_ADDR (0xE6304000U)
+#define BOOT_BL2_LENGTH (0x19000U)
+
+typedef struct {
+	uintptr_t dest;
+	uintptr_t length;
+} addr_loaded_t;
+
+static addr_loaded_t addr_loaded[CHECK_IMAGE_AREA_CNT] = {
+	[0] = {BOOT_BL2_ADDR, BOOT_BL2_LENGTH},
+	[1] = {BL31_BASE, RCAR_TRUSTED_SRAM_SIZE},
+#ifndef SPD_NONE
+	[2] = {BL32_BASE, BL32_SIZE}
+#endif
+};
+
+#ifndef SPD_NONE
+static uint32_t addr_loaded_cnt = 3;
+#else
+static uint32_t addr_loaded_cnt = 2;
+#endif
+
 static const plat_rcar_name_offset_t name_offset[] = {
 	{BL31_IMAGE_ID, 0U, RCAR_ATTR_SET_ALL(0, 0, 0)},
 
@@ -126,6 +149,9 @@ static uint64_t rcar_image_header[RCAR_MAX_BL3X_IMAGE + 2U] = { 0U };
 static uint64_t rcar_image_header_prttn[RCAR_MAX_BL3X_IMAGE + 2U] = { 0U };
 static uint64_t rcar_image_number = { 0U };
 static uint32_t rcar_cert_load = { 0U };
+#if (RCAR_RPC_HYPERFLASH_ABLOADER == 1)
+static uint32_t rcar_image_offset = 0U;
+#endif
 
 static io_type_t device_type_rcar(void)
 {
@@ -151,6 +177,9 @@ int32_t rcar_get_certificate(const int32_t name, uint32_t *cert)
 	return -EINVAL;
 }
 
+#define MFISBTSTSR			(0xE6260604U)
+#define MFISBTSTSR_BOOT_PARTITION	(0x00000010U)
+
 static int32_t file_to_offset(const int32_t name, uintptr_t *offset,
 			      uint32_t *cert, uint32_t *no_load,
 			      uintptr_t *partition)
@@ -169,6 +198,11 @@ static int32_t file_to_offset(const int32_t name, uintptr_t *offset,
 		}
 
 		*offset = rcar_image_header[addr];
+
+#if (RCAR_RPC_HYPERFLASH_ABLOADER == 1)
+		*offset += rcar_image_offset;
+#endif
+
 		*cert = RCAR_CERT_SIZE;
 		*cert *= RCAR_ATTR_GET_CERTOFF(name_offset[i].attr);
 		*cert += RCAR_SDRAM_certESS;
@@ -238,8 +272,16 @@ void rcar_read_certificate(uint64_t cert, uint32_t *len, uintptr_t *dst)
 			dstl = cert + RCAR_CERT_INFO_DST_OFFSET;
 			break;
 		}
+		val = mmio_read_32(size);
+		if (val > (UINT32_MAX / 4)) {
+			ERROR("BL2: %s[%d] uint32 overflow!\n",
+				__func__, __LINE__);
+			*dst = 0;
+			*len = 0;
+			return;
+		}
 
-		*len = mmio_read_32(size) * 4U;
+		*len = val * 4U;
 		dsth = dstl + 4U;
 		*dst = ((uintptr_t) mmio_read_32(dsth) << 32) +
 		    ((uintptr_t) mmio_read_32(dstl));
@@ -247,7 +289,14 @@ void rcar_read_certificate(uint64_t cert, uint32_t *len, uintptr_t *dst)
 	}
 
 	size = cert + RCAR_CERT_INFO_SIZE_OFFSET;
-	*len = mmio_read_32(size) * 4U;
+	val = mmio_read_32(size);
+	if (val > (UINT32_MAX / 4)) {
+		ERROR("BL2: %s[%d] uint32 overflow!\n", __func__, __LINE__);
+		*dst = 0;
+		*len = 0;
+		return;
+	}
+	*len = val * 4U;
 	dstl = cert + RCAR_CERT_INFO_DST_OFFSET;
 	dsth = dstl + 4U;
 	*dst = ((uintptr_t) mmio_read_32(dsth) << 32) +
@@ -260,17 +309,18 @@ static int32_t check_load_area(uintptr_t dst, uintptr_t len)
 	uintptr_t dram_start, dram_end;
 	uintptr_t prot_start, prot_end;
 	int32_t result = IO_SUCCESS;
+	int n;
 
-	dram_start = legacy ? DRAM1_BASE : DRAM_40BIT_BASE;
+	dram_start = legacy ? DRAM1_NS_BASE : DRAM_40BIT_BASE;
 
-	dram_end = legacy ? DRAM1_BASE + DRAM1_SIZE :
+	dram_end = legacy ? DRAM1_NS_BASE + DRAM1_NS_SIZE :
 	    DRAM_40BIT_BASE + DRAM_40BIT_SIZE;
 
 	prot_start = legacy ? DRAM_PROTECTED_BASE : DRAM_40BIT_PROTECTED_BASE;
 
 	prot_end = prot_start + DRAM_PROTECTED_SIZE;
 
-	if (dst < dram_start || dst > dram_end - len) {
+	if (dst < dram_start || len > dram_end || dst > dram_end - len) {
 		ERROR("BL2: dst address is on the protected area.\n");
 		result = IO_FAIL;
 		goto done;
@@ -280,12 +330,54 @@ static int32_t check_load_area(uintptr_t dst, uintptr_t len)
 	if (dst >= prot_start && dst < prot_end) {
 		ERROR("BL2: dst address is on the protected area.\n");
 		result = IO_FAIL;
+		goto done;
 	}
 
-	if (dst < prot_start && dst > prot_start - len) {
-		ERROR("BL2: loaded data is on the protected area.\n");
+	if (len > prot_start || (dst < prot_start && dst > prot_start - len)) {
+		ERROR("BL2: %s[%d] loaded data is on the protected area.\n",
+			__func__, __LINE__);
 		result = IO_FAIL;
+		goto done;
 	}
+
+	if (addr_loaded_cnt >= CHECK_IMAGE_AREA_CNT) {
+		ERROR("BL2: max loadable non secure images reached\n");
+		result = IO_FAIL;
+		goto done;
+	}
+
+	addr_loaded[addr_loaded_cnt].dest = dst;
+	addr_loaded[addr_loaded_cnt].length = len;
+	for (n = 0; n < addr_loaded_cnt; n++) {
+		/*
+		 * Check if next image invades a previous loaded image
+		 *
+		 * IMAGE n: area from previous image:	dest| IMAGE n |length
+		 * IMAGE n+1: area from next image:	dst | IMAGE n |len
+		 *
+		 * 1. check:
+		 *      | IMAGE n |
+		 *        | IMAGE n+1 |
+		 * 2. check:
+		 *      | IMAGE n |
+		 *  | IMAGE n+1 |
+		 * 3. check:
+		 *      | IMAGE n |
+		 *  |    IMAGE n+1    |
+		 */
+		if (((dst >= addr_loaded[n].dest) &&
+		     (dst <= addr_loaded[n].dest + addr_loaded[n].length)) ||
+		    ((dst + len >= addr_loaded[n].dest) &&
+		     (dst + len <= addr_loaded[n].dest + addr_loaded[n].length)) ||
+		    ((dst <= addr_loaded[n].dest) &&
+		     (dst + len >= addr_loaded[n].dest + addr_loaded[n].length))) {
+			ERROR("BL2: next image overlap a previous image area.\n");
+			result = IO_FAIL;
+			goto done;
+		}
+	}
+	addr_loaded_cnt++;
+
 done:
 	if (result == IO_FAIL) {
 		ERROR("BL2: Out of range : dst=0x%lx len=0x%lx\n", dst, len);
@@ -374,7 +466,7 @@ static int32_t load_bl33x(void)
 
 static int32_t rcar_dev_init(io_dev_info_t *dev_info, const uintptr_t name)
 {
-	uint64_t header[64] __aligned(FLASH_TRANS_SIZE_UNIT) = {0UL};
+	static uint64_t header[64] __aligned(FLASH_TRANS_SIZE_UNIT) = {0UL};
 	uintptr_t handle;
 	ssize_t offset;
 	uint32_t i;
@@ -412,29 +504,41 @@ static int32_t rcar_dev_init(io_dev_info_t *dev_info, const uintptr_t name)
 	 */
 	offset = name == EMMC_DEV_ID ? RCAR_EMMC_CERT_HEADER :
 	    RCAR_FLASH_CERT_HEADER;
+
+#if (RCAR_RPC_HYPERFLASH_ABLOADER == 1)
+	rcar_image_offset = 0;
+	if ((name == FLASH_DEV_ID) &&
+	    (mmio_read_32(MFISBTSTSR) & MFISBTSTSR_BOOT_PARTITION)) {
+		rcar_image_offset = 0x800000;
+	}
+#endif
+
 	rc = io_seek(handle, IO_SEEK_SET, offset);
 	if (rc != IO_SUCCESS) {
 		WARN("Firmware Image Package header failed to seek\n");
 		goto error;
 	}
-#if RCAR_BL2_DCACHE == 1
-	inv_dcache_range((uint64_t) header, sizeof(header));
-#endif
+
 	rc = io_read(handle, (uintptr_t) &header, sizeof(header), &cnt);
 	if (rc != IO_SUCCESS) {
 		WARN("Firmware Image Package header failed to read\n");
 		goto error;
 	}
 
+#if RCAR_BL2_DCACHE == 1
+	inv_dcache_range((uint64_t) header, sizeof(header));
+#endif
+
 	rcar_image_number = header[0];
+	if (rcar_image_number == 0 || rcar_image_number > RCAR_MAX_BL3X_IMAGE) {
+		WARN("Firmware Image Package header check failed.\n");
+		rc = IO_FAIL;
+		goto error;
+	}
+
 	for (i = 0; i < rcar_image_number + 2; i++) {
 		rcar_image_header[i] = header[i * 2 + 1];
 		rcar_image_header_prttn[i] = header[i * 2 + 2];
-	}
-
-	if (rcar_image_number == 0 || rcar_image_number > RCAR_MAX_BL3X_IMAGE) {
-		WARN("Firmware Image Package header check failed.\n");
-		goto error;
 	}
 
 	rc = io_seek(handle, IO_SEEK_SET, offset + RCAR_SECTOR6_CERT_OFFSET);
@@ -442,16 +546,18 @@ static int32_t rcar_dev_init(io_dev_info_t *dev_info, const uintptr_t name)
 		WARN("Firmware Image Package header failed to seek cert\n");
 		goto error;
 	}
-#if RCAR_BL2_DCACHE == 1
-	inv_dcache_range(RCAR_SDRAM_certESS,
-			 RCAR_CERT_SIZE * (2 + rcar_image_number));
-#endif
+
 	rc = io_read(handle, RCAR_SDRAM_certESS,
 		     RCAR_CERT_SIZE * (2 + rcar_image_number), &cnt);
 	if (rc != IO_SUCCESS) {
 		WARN("cert file read error.\n");
 		goto error;
 	}
+
+#if RCAR_BL2_DCACHE == 1
+	inv_dcache_range(RCAR_SDRAM_certESS,
+			 RCAR_CERT_SIZE * (2 + rcar_image_number));
+#endif
 
 	rcar_cert_load = RCAR_CERT_LOAD;
 error:
@@ -505,13 +611,6 @@ static int32_t rcar_file_open(io_dev_info_t *info, const uintptr_t file_spec,
 	}
 
 	rcar_read_certificate((uint64_t) cert, &len, &dst);
-
-	/* Baylibre: HACK */
-	if (spec->offset == BL31_IMAGE_ID && len < RCAR_TRUSTED_SRAM_SIZE) {
-		WARN("%s,%s\n", "r-car ignoring the BL31 size from certificate",
-		     "using RCAR_TRUSTED_SRAM_SIZE instead");
-		len = RCAR_TRUSTED_SRAM_SIZE;
-	}
 
 	current_file.partition = partition;
 	current_file.no_load = noload;

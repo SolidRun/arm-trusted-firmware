@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020-2021, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2020-2022, ARM Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -24,7 +24,7 @@
 #define CPU_OPS						\
 	. = ALIGN(STRUCT_ALIGN);			\
 	__CPU_OPS_START__ = .;				\
-	KEEP(*(cpu_ops))				\
+	KEEP(*(.cpu_ops))				\
 	__CPU_OPS_END__ = .;
 
 #define PARSER_LIB_DESCS				\
@@ -36,13 +36,32 @@
 #define RT_SVC_DESCS					\
 	. = ALIGN(STRUCT_ALIGN);			\
 	__RT_SVC_DESCS_START__ = .;			\
-	KEEP(*(rt_svc_descs))				\
+	KEEP(*(.rt_svc_descs))				\
 	__RT_SVC_DESCS_END__ = .;
 
+#if SPMC_AT_EL3
+#define EL3_LP_DESCS					\
+	. = ALIGN(STRUCT_ALIGN);			\
+	__EL3_LP_DESCS_START__ = .;			\
+	KEEP(*(.el3_lp_descs))				\
+	__EL3_LP_DESCS_END__ = .;
+#else
+#define EL3_LP_DESCS
+#endif
+
+#if ENABLE_SPMD_LP
+#define SPMD_LP_DESCS					\
+	. = ALIGN(STRUCT_ALIGN);			\
+	__SPMD_LP_DESCS_START__ = .;			\
+	KEEP(*(.spmd_lp_descs))			\
+	__SPMD_LP_DESCS_END__ = .;
+#else
+#define SPMD_LP_DESCS
+#endif
 #define PMF_SVC_DESCS					\
 	. = ALIGN(STRUCT_ALIGN);			\
 	__PMF_SVC_DESCS_START__ = .;			\
-	KEEP(*(pmf_svc_descs))				\
+	KEEP(*(.pmf_svc_descs))				\
 	__PMF_SVC_DESCS_END__ = .;
 
 #define FCONF_POPULATOR					\
@@ -70,7 +89,9 @@
  */
 #define BASE_XLAT_TABLE					\
 	. = ALIGN(16);					\
-	*(base_xlat_table)
+	__BASE_XLAT_TABLE_START__ = .;			\
+	*(.base_xlat_table)				\
+	__BASE_XLAT_TABLE_END__ = .;
 
 #if PLAT_RO_XLAT_TABLES
 #define BASE_XLAT_TABLE_RO		BASE_XLAT_TABLE
@@ -87,7 +108,9 @@
 	PARSER_LIB_DESCS				\
 	CPU_OPS						\
 	GOT						\
-	BASE_XLAT_TABLE_RO
+	BASE_XLAT_TABLE_RO				\
+	EL3_LP_DESCS					\
+	SPMD_LP_DESCS
 
 /*
  * .data must be placed at a lower address than the stacks if the stack
@@ -122,9 +145,9 @@
 
 #if !(defined(IMAGE_BL31) && RECLAIM_INIT_CODE)
 #define STACK_SECTION					\
-	stacks (NOLOAD) : {				\
+	.stacks (NOLOAD) : {				\
 		__STACKS_START__ = .;			\
-		*(tzfw_normal_stacks)			\
+		*(.tzfw_normal_stacks)			\
 		__STACKS_END__ = .;			\
 	}
 #endif
@@ -157,7 +180,7 @@
 	. = ALIGN(CACHE_WRITEBACK_GRANULE);		\
 	__BAKERY_LOCK_START__ = .;			\
 	__PERCPU_BAKERY_LOCK_START__ = .;		\
-	*(bakery_lock)					\
+	*(.bakery_lock)					\
 	. = ALIGN(CACHE_WRITEBACK_GRANULE);		\
 	__PERCPU_BAKERY_LOCK_END__ = .;			\
 	__PERCPU_BAKERY_LOCK_SIZE__ = ABSOLUTE(__PERCPU_BAKERY_LOCK_END__ - __PERCPU_BAKERY_LOCK_START__); \
@@ -178,7 +201,7 @@
 #define PMF_TIMESTAMP					\
 	. = ALIGN(CACHE_WRITEBACK_GRANULE);		\
 	__PMF_TIMESTAMP_START__ = .;			\
-	KEEP(*(pmf_timestamp_array))			\
+	KEEP(*(.pmf_timestamp_array))			\
 	. = ALIGN(CACHE_WRITEBACK_GRANULE);		\
 	__PMF_PERCPU_TIMESTAMP_END__ = .;		\
 	__PERCPU_TIMESTAMP_SIZE__ = ABSOLUTE(. - __PMF_TIMESTAMP_START__); \
@@ -203,14 +226,16 @@
 	}
 
 /*
- * The xlat_table section is for full, aligned page tables (4K).
+ * The .xlat_table section is for full, aligned page tables (4K).
  * Removing them from .bss avoids forcing 4K alignment on
  * the .bss section. The tables are initialized to zero by the translation
  * tables library.
  */
 #define XLAT_TABLE_SECTION				\
-	xlat_table (NOLOAD) : {				\
-		*(xlat_table)				\
+	.xlat_table (NOLOAD) : {				\
+		__XLAT_TABLE_START__ = .;		\
+		*(.xlat_table)				\
+		__XLAT_TABLE_END__ = .;			\
 	}
 
 #endif /* BL_COMMON_LD_H */

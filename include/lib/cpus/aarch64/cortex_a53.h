@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014-2019, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2014-2019, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -52,6 +52,8 @@
 #define CORTEX_A53_CPUACTLR_EL1_L1RADIS			(ULL(3) << CORTEX_A53_CPUACTLR_EL1_L1RADIS_SHIFT)
 #define CORTEX_A53_CPUACTLR_EL1_DTAH_SHIFT		U(24)
 #define CORTEX_A53_CPUACTLR_EL1_DTAH			(ULL(1) << CORTEX_A53_CPUACTLR_EL1_DTAH_SHIFT)
+#define CORTEX_A53_CPUACTLR_EL1_L1PCTL_SHIFT		U(13)
+#define CORTEX_A53_CPUACTLR_EL1_L1PCTL			(ULL(7) << CORTEX_A53_CPUACTLR_EL1_L1PCTL_SHIFT)
 
 /*******************************************************************************
  * L2 Auxiliary Control register specific definitions.

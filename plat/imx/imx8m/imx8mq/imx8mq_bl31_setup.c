@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2018-2023, ARM Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -18,20 +18,42 @@
 #include <drivers/generic_delay_timer.h>
 #include <lib/el3_runtime/context_mgmt.h>
 #include <lib/mmio.h>
-#include <lib/xlat_tables/xlat_tables.h>
+#include <lib/xlat_tables/xlat_tables_v2.h>
 #include <plat/common/platform.h>
 
+#include <dram.h>
 #include <gpc.h>
 #include <imx_aipstz.h>
 #include <imx_uart.h>
 #include <imx8m_caam.h>
+#include <imx8m_ccm.h>
 #include <plat_imx8.h>
+
+#define TRUSTY_PARAMS_LEN_BYTES      (4096*2)
+
+/*
+ * Avoid the pointer dereference of the canonical mmio_read_8() implementation.
+ * This prevents the compiler from mis-interpreting the MMIO access as an
+ * illegal memory access to a very low address (the IMX ROM is mapped at 0).
+ */
+static uint8_t mmio_read_8_ldrb(uintptr_t address)
+{
+	uint8_t reg;
+
+	__asm__ volatile ("ldrb %w0, [%1]" : "=r" (reg) : "r" (address));
+
+	return reg;
+}
 
 static const mmap_region_t imx_mmap[] = {
 	MAP_REGION_FLAT(GPV_BASE, GPV_SIZE, MT_DEVICE | MT_RW), /* GPV map */
 	MAP_REGION_FLAT(IMX_ROM_BASE, IMX_ROM_SIZE, MT_MEMORY | MT_RO), /* ROM map */
 	MAP_REGION_FLAT(IMX_AIPS_BASE, IMX_AIPS_SIZE, MT_DEVICE | MT_RW), /* AIPS map */
 	MAP_REGION_FLAT(IMX_GIC_BASE, IMX_GIC_SIZE, MT_DEVICE | MT_RW), /* GIC map */
+	MAP_REGION_FLAT(IMX_DDRPHY_BASE, IMX_DDR_IPS_SIZE, MT_DEVICE | MT_RW), /* DDRMIX map */
+	MAP_REGION_FLAT(IMX_DRAM_BASE, IMX_DRAM_SIZE, MT_MEMORY | MT_RW | MT_NS),
+	MAP_REGION_FLAT(IMX_CAAM_RAM_BASE, IMX_CAAM_RAM_SIZE, MT_MEMORY | MT_RW), /* CAMM RAM */
+	MAP_REGION_FLAT(IMX_NS_OCRAM_BASE, IMX_NS_OCRAM_SIZE, MT_MEMORY | MT_RW), /* NS OCRAM */
 	{0},
 };
 
@@ -65,11 +87,11 @@ static void imx8mq_soc_info_init(void)
 	uint32_t ocotp_val;
 
 	imx_soc_revision = mmio_read_32(IMX_ANAMIX_BASE + ANAMIX_DIGPROG);
-	rom_version = mmio_read_8(IMX_ROM_BASE + ROM_SOC_INFO_A0);
+	rom_version = mmio_read_8_ldrb(IMX_ROM_BASE + ROM_SOC_INFO_A0);
 	if (rom_version == 0x10)
 		return;
 
-	rom_version = mmio_read_8(IMX_ROM_BASE + ROM_SOC_INFO_B0);
+	rom_version = mmio_read_8_ldrb(IMX_ROM_BASE + ROM_SOC_INFO_B0);
 	if (rom_version == 0x20) {
 		imx_soc_revision &= ~0xff;
 		imx_soc_revision |= rom_version;
@@ -80,7 +102,11 @@ static void imx8mq_soc_info_init(void)
 	ocotp_val = mmio_read_32(IMX_OCOTP_BASE + OCOTP_SOC_INFO_B1);
 	if (ocotp_val == 0xff0055aa) {
 		imx_soc_revision &= ~0xff;
-		imx_soc_revision |= 0x21;
+		if (rom_version == 0x22) {
+			imx_soc_revision |= 0x22;
+		} else {
+			imx_soc_revision |= 0x21;
+		}
 		return;
 	}
 }
@@ -122,6 +148,8 @@ static void bl31_tz380_setup(void)
 void bl31_early_platform_setup2(u_register_t arg0, u_register_t arg1,
 			u_register_t arg2, u_register_t arg3)
 {
+	unsigned int console_base = IMX_BOOT_UART_BASE;
+	static console_t console;
 	int i;
 	/* enable CSU NS access permission */
 	for (i = 0; i < 64; i++) {
@@ -130,14 +158,17 @@ void bl31_early_platform_setup2(u_register_t arg0, u_register_t arg1,
 
 	imx_aipstz_init(aipstz);
 
+	if (console_base == 0U) {
+		console_base = imx8m_uart_get_base();
+	}
+
+	console_imx_uart_register(console_base, IMX_BOOT_UART_CLK_IN_HZ,
+		IMX_CONSOLE_BAUDRATE, &console);
+	/* This console is only used for boot stage */
+	console_set_scope(&console, CONSOLE_FLAG_BOOT);
+
 	imx8m_caam_init();
 
-#if DEBUG_CONSOLE
-	static console_t console;
-
-	console_imx_uart_register(IMX_BOOT_UART_BASE, IMX_BOOT_UART_CLK_IN_HZ,
-		IMX_CONSOLE_BAUDRATE, &console);
-#endif
 	/*
 	 * tell BL3-1 where the non-secure software image is located
 	 * and the entry state information.
@@ -146,7 +177,7 @@ void bl31_early_platform_setup2(u_register_t arg0, u_register_t arg1,
 	bl33_image_ep_info.spsr = get_spsr_for_bl33_entry();
 	SET_SECURITY_STATE(bl33_image_ep_info.h.attr, NON_SECURE);
 
-#ifdef SPD_opteed
+#if defined(SPD_opteed) || defined(SPD_trusty)
 	/* Populate entry point information for BL32 */
 	SET_PARAM_HEAD(&bl32_image_ep_info, PARAM_EP, VERSION_1, 0);
 	SET_SECURITY_STATE(bl32_image_ep_info.h.attr, SECURE);
@@ -156,6 +187,16 @@ void bl31_early_platform_setup2(u_register_t arg0, u_register_t arg1,
 	/* Pass TEE base and size to bl33 */
 	bl33_image_ep_info.args.arg1 = BL32_BASE;
 	bl33_image_ep_info.args.arg2 = BL32_SIZE;
+
+#ifdef SPD_trusty
+	bl32_image_ep_info.args.arg0 = BL32_SIZE;
+	bl32_image_ep_info.args.arg1 = BL32_BASE;
+#else
+	/* Make sure memory is clean */
+	mmio_write_32(BL32_FDT_OVERLAY_ADDR, 0);
+	bl33_image_ep_info.args.arg3 = BL32_FDT_OVERLAY_ADDR;
+	bl32_image_ep_info.args.arg3 = BL32_FDT_OVERLAY_ADDR;
+#endif
 #endif
 
 	bl31_tz380_setup();
@@ -163,20 +204,28 @@ void bl31_early_platform_setup2(u_register_t arg0, u_register_t arg1,
 
 void bl31_plat_arch_setup(void)
 {
-	mmap_add_region(BL31_BASE, BL31_BASE, (BL31_LIMIT - BL31_BASE),
-		MT_MEMORY | MT_RW | MT_SECURE);
-	mmap_add_region(BL_CODE_BASE, BL_CODE_BASE, (BL_CODE_END - BL_CODE_BASE),
-		MT_MEMORY | MT_RO | MT_SECURE);
-
-	mmap_add(imx_mmap);
-
-#if USE_COHERENT_MEM
-	mmap_add_region(BL_COHERENT_RAM_BASE, BL_COHERENT_RAM_BASE,
-		BL_COHERENT_RAM_END - BL_COHERENT_RAM_BASE,
-		MT_DEVICE | MT_RW | MT_SECURE);
+	const mmap_region_t bl_regions[] = {
+		MAP_REGION_FLAT(BL31_START, BL31_SIZE,
+				MT_MEMORY | MT_RW | MT_SECURE),
+		MAP_REGION_FLAT(BL_CODE_BASE, BL_CODE_END - BL_CODE_BASE,
+				MT_MEMORY | MT_RO | MT_SECURE),
+#if SEPARATE_NOBITS_REGION
+		MAP_REGION_FLAT(BL_NOBITS_BASE, BL_NOBITS_END - BL_NOBITS_BASE,
+				MT_RW_DATA | MT_SECURE),
 #endif
-	/* setup xlat table */
-	init_xlat_tables();
+#if USE_COHERENT_MEM
+		MAP_REGION_FLAT(BL_COHERENT_RAM_BASE,
+				BL_COHERENT_RAM_END - BL_COHERENT_RAM_BASE,
+				MT_DEVICE | MT_RW | MT_SECURE),
+#endif
+#if defined(SPD_opteed) || defined(SPD_trusty)
+		/* Map TEE memory */
+		MAP_REGION_FLAT(BL32_BASE, BL32_SIZE, MT_MEMORY | MT_RW),
+#endif
+		{0},
+	};
+
+	setup_page_tables(bl_regions, imx_mmap);
 	/* enable the MMU */
 	enable_mmu_el3(0);
 }
@@ -194,6 +243,8 @@ void bl31_platform_setup(void)
 
 	/* gpc init */
 	imx_gpc_init();
+
+	dram_info_init(SAVED_DRAM_TIMING_BASE);
 }
 
 entry_point_info_t *bl31_plat_get_next_image_ep_info(unsigned int type)
@@ -211,7 +262,11 @@ unsigned int plat_get_syscnt_freq2(void)
 	return COUNTER_FREQUENCY;
 }
 
-void bl31_plat_runtime_setup(void)
+#ifdef SPD_trusty
+void plat_trusty_set_boot_args(aapcs64_params_t *args)
 {
-	return;
+	args->arg0 = BL32_SIZE;
+	args->arg1 = BL32_BASE;
+	args->arg2 = TRUSTY_PARAMS_LEN_BYTES;
 }
+#endif

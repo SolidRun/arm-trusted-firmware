@@ -15,7 +15,7 @@ BOARD_PATH	:=	${PLAT_SOC_PATH}/${BOARD}
 
  # get SoC-specific defnitions
 include ${PLAT_SOC_PATH}/soc.def
-
+include ${PLAT_COMMON_PATH}/plat_make_helper/soc_common_def.mk
 include ${PLAT_COMMON_PATH}/plat_make_helper/plat_build_macros.mk
 
  # SoC-specific
@@ -36,12 +36,12 @@ endif
 
  # For Security Features
 DISABLE_FUSE_WRITE	:= 1
+$(eval $(call SET_NXP_MAKE_FLAG,SMMU_NEEDED,BL2))
 ifeq (${TRUSTED_BOARD_BOOT}, 1)
 ifeq (${GENERATE_COT},1)
 # Save Keys to be used by DDR FIP image
 SAVE_KEYS=1
 endif
-$(eval $(call SET_NXP_MAKE_FLAG,SMMU_NEEDED,BL2))
 $(eval $(call SET_NXP_MAKE_FLAG,SFP_NEEDED,BL2))
 $(eval $(call SET_NXP_MAKE_FLAG,SNVS_NEEDED,BL2))
 # Used by create_pbl tool to
@@ -103,7 +103,8 @@ $(eval $(call SET_NXP_MAKE_FLAG,DDR_FIP_IO_NEEDED,BL2))
 PLAT_INCLUDES		+=	-I${PLAT_COMMON_PATH}/include/default\
 				-I${BOARD_PATH}\
 				-I${PLAT_COMMON_PATH}/include/default/ch_${CHASSIS}\
-				-I${PLAT_SOC_PATH}/include
+				-I${PLAT_SOC_PATH}/include\
+				-I${PLAT_COMMON_PATH}/soc_errata
 
 ifeq (${SECURE_BOOT},yes)
 include ${PLAT_COMMON_PATH}/tbbr/tbbr.mk
@@ -150,7 +151,7 @@ endif
 include ${PLAT_DRIVERS_PATH}/drivers.mk
 
  # Adding SoC specific files
-include ${PLAT_SOC_PATH}/erratas_soc.mk
+include ${PLAT_COMMON_PATH}/soc_errata/errata.mk
 
 PLAT_INCLUDES		+=	${NV_STORAGE_INCLUDES}\
 				${WARM_RST_INCLUDES}

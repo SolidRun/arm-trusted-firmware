@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020, MediaTek Inc. All rights reserved.
+ * Copyright (c) 2020-2023, MediaTek Inc. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -143,6 +143,11 @@ unsigned int mt_spm_cond_check(int state_id,
 		blocked |= SPM_COND_CHECK_BLOCKED_PLL;
 	}
 
+	if (is_system_suspend && (blocked != 0U)) {
+		INFO("suspend: %s total blocked = 0x%08x\n",
+		     dest->name, blocked);
+	}
+
 	return blocked;
 }
 
@@ -150,7 +155,7 @@ unsigned int mt_spm_cond_check(int state_id,
 	(((mmio_read_32(SPM_PWR_STATUS) & mask) == 0U) &&	\
 	 ((mmio_read_32(SPM_PWR_STATUS_2ND) & mask) == 0U))
 
-int mt_spm_cond_update(struct mt_resource_constraint **con,
+int mt_spm_cond_update(struct mt_resource_constraint **con, unsigned int num,
 		       int stateid, void *priv)
 {
 	int res;

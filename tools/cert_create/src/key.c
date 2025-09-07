@@ -1,17 +1,23 @@
 /*
- * Copyright (c) 2015-2021, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2015-2024, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include <assert.h>
 #include <getopt.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+/* Suppress OpenSSL engine deprecation warnings */
+#define OPENSSL_SUPPRESS_DEPRECATED
+
 #include <openssl/conf.h>
+#include <openssl/engine.h>
 #include <openssl/evp.h>
 #include <openssl/pem.h>
+#include <openssl/ssl.h>
 
 #include "cert.h"
 #include "cmd_opt.h"
@@ -21,13 +27,14 @@
 
 #define MAX_FILENAME_LEN		1024
 
-key_t *keys;
+cert_key_t *keys;
 unsigned int num_keys;
 
+#if !USING_OPENSSL3
 /*
  * Create a new key container
  */
-int key_new(key_t *key)
+int key_new(cert_key_t *key)
 {
 	/* Create key pair container */
 	key->key = EVP_PKEY_new();
@@ -37,27 +44,37 @@ int key_new(key_t *key)
 
 	return 1;
 }
+#endif
 
-static int key_create_rsa(key_t *key, int key_bits)
+static int key_create_rsa(cert_key_t *key, int key_bits)
 {
+#if USING_OPENSSL3
+	EVP_PKEY *rsa = EVP_RSA_gen(key_bits);
+	if (rsa == NULL) {
+		printf("Cannot generate RSA key\n");
+		return 0;
+	}
+	key->key = rsa;
+	return 1;
+#else
 	BIGNUM *e;
 	RSA *rsa = NULL;
 
 	e = BN_new();
 	if (e == NULL) {
 		printf("Cannot create RSA exponent\n");
-		goto err;
+		return 0;
 	}
 
 	if (!BN_set_word(e, RSA_F4)) {
 		printf("Cannot assign RSA exponent\n");
-		goto err;
+		goto err2;
 	}
 
 	rsa = RSA_new();
 	if (rsa == NULL) {
 		printf("Cannot create RSA key\n");
-		goto err;
+		goto err2;
 	}
 
 	if (!RSA_generate_key_ex(rsa, key_bits, e, NULL)) {
@@ -72,21 +89,57 @@ static int key_create_rsa(key_t *key, int key_bits)
 
 	BN_free(e);
 	return 1;
+
 err:
 	RSA_free(rsa);
+err2:
 	BN_free(e);
 	return 0;
+#endif
 }
 
 #ifndef OPENSSL_NO_EC
-static int key_create_ecdsa(key_t *key, int key_bits)
+#if USING_OPENSSL3
+static int key_create_ecdsa(cert_key_t *key, int key_bits, const char *curve)
+{
+	EVP_PKEY *ec = EVP_EC_gen(curve);
+	if (ec == NULL) {
+		printf("Cannot generate EC key\n");
+		return 0;
+	}
+
+	key->key = ec;
+	return 1;
+}
+
+static int key_create_ecdsa_nist(cert_key_t *key, int key_bits)
+{
+	if (key_bits == 384) {
+		return key_create_ecdsa(key, key_bits, "secp384r1");
+	} else {
+		assert(key_bits == 256);
+		return key_create_ecdsa(key, key_bits, "prime256v1");
+	}
+}
+
+static int key_create_ecdsa_brainpool_r(cert_key_t *key, int key_bits)
+{
+	return key_create_ecdsa(key, key_bits, "brainpoolP256r1");
+}
+
+static int key_create_ecdsa_brainpool_t(cert_key_t *key, int key_bits)
+{
+	return key_create_ecdsa(key, key_bits, "brainpoolP256t1");
+}
+#else
+static int key_create_ecdsa(cert_key_t *key, int key_bits, const int curve_id)
 {
 	EC_KEY *ec;
 
-	ec = EC_KEY_new_by_curve_name(NID_X9_62_prime256v1);
+	ec = EC_KEY_new_by_curve_name(curve_id);
 	if (ec == NULL) {
 		printf("Cannot create EC key\n");
-		goto err;
+		return 0;
 	}
 	if (!EC_KEY_generate_key(ec)) {
 		printf("Cannot generate EC key\n");
@@ -100,21 +153,49 @@ static int key_create_ecdsa(key_t *key, int key_bits)
 	}
 
 	return 1;
+
 err:
 	EC_KEY_free(ec);
 	return 0;
 }
+
+static int key_create_ecdsa_nist(cert_key_t *key, int key_bits)
+{
+	if (key_bits == 384) {
+		return key_create_ecdsa(key, key_bits, NID_secp384r1);
+	} else {
+		assert(key_bits == 256);
+		return key_create_ecdsa(key, key_bits, NID_X9_62_prime256v1);
+	}
+}
+
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+static int key_create_ecdsa_brainpool_r(cert_key_t *key, int key_bits)
+{
+	return key_create_ecdsa(key, key_bits, NID_brainpoolP256r1);
+}
+
+static int key_create_ecdsa_brainpool_t(cert_key_t *key, int key_bits)
+{
+	return key_create_ecdsa(key, key_bits, NID_brainpoolP256t1);
+}
+#endif
+#endif /* USING_OPENSSL3 */
 #endif /* OPENSSL_NO_EC */
 
-typedef int (*key_create_fn_t)(key_t *key, int key_bits);
+typedef int (*key_create_fn_t)(cert_key_t *key, int key_bits);
 static const key_create_fn_t key_create_fn[KEY_ALG_MAX_NUM] = {
-	key_create_rsa, 	/* KEY_ALG_RSA */
+	[KEY_ALG_RSA] = key_create_rsa,
 #ifndef OPENSSL_NO_EC
-	key_create_ecdsa, 	/* KEY_ALG_ECDSA */
+	[KEY_ALG_ECDSA_NIST] = key_create_ecdsa_nist,
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+	[KEY_ALG_ECDSA_BRAINPOOL_R] = key_create_ecdsa_brainpool_r,
+	[KEY_ALG_ECDSA_BRAINPOOL_T] = key_create_ecdsa_brainpool_t,
+#endif
 #endif /* OPENSSL_NO_EC */
 };
 
-int key_create(key_t *key, int type, int key_bits)
+int key_create(cert_key_t *key, int type, int key_bits)
 {
 	if (type >= KEY_ALG_MAX_NUM) {
 		printf("Invalid key type\n");
@@ -128,41 +209,87 @@ int key_create(key_t *key, int type, int key_bits)
 	return 0;
 }
 
-int key_load(key_t *key, unsigned int *err_code)
+static EVP_PKEY *key_load_pkcs11(const char *uri)
 {
-	FILE *fp;
-	EVP_PKEY *k;
+	char *key_pass;
+	EVP_PKEY *pkey;
+	ENGINE *e;
 
-	if (key->fn) {
-		/* Load key from file */
-		fp = fopen(key->fn, "r");
-		if (fp) {
-			k = PEM_read_PrivateKey(fp, &key->key, NULL, NULL);
-			fclose(fp);
-			if (k) {
-				*err_code = KEY_ERR_NONE;
-				return 1;
-			} else {
-				ERROR("Cannot load key from %s\n", key->fn);
-				*err_code = KEY_ERR_LOAD;
-			}
-		} else {
-			WARN("Cannot open file %s\n", key->fn);
-			*err_code = KEY_ERR_OPEN;
-		}
-	} else {
-		WARN("Key filename not specified\n");
-		*err_code = KEY_ERR_FILENAME;
+#if !USING_OPENSSL3
+	if (!OPENSSL_init_crypto(OPENSSL_INIT_LOAD_CONFIG, NULL)) {
+		fprintf(stderr, "Failed to init SSL\n");
+		return NULL;
+	}
+#endif
+
+	ENGINE_load_builtin_engines();
+	e = ENGINE_by_id("pkcs11");
+	if (!e) {
+		fprintf(stderr, "Cannot Load PKCS#11 ENGINE\n");
+		return NULL;
 	}
 
-	return 0;
+	if (!ENGINE_init(e)) {
+		fprintf(stderr, "Cannot ENGINE_init\n");
+		goto err;
+	}
+
+	key_pass = getenv("PKCS11_PIN");
+	if (key_pass) {
+		if (!ENGINE_ctrl_cmd_string(e, "PIN", key_pass, 0)) {
+			fprintf(stderr, "Cannot Set PKCS#11 PIN\n");
+			goto err;
+		}
+	}
+
+	pkey = ENGINE_load_private_key(e, uri, NULL, NULL);
+	if (pkey)
+		return pkey;
+err:
+	ENGINE_free(e);
+	return NULL;
+
 }
 
-int key_store(key_t *key)
+unsigned int key_load(cert_key_t *key)
+{
+	if (key->fn == NULL) {
+		VERBOSE("Key not specified\n");
+		return KEY_ERR_FILENAME;
+	}
+
+	if (strncmp(key->fn, "pkcs11:", 7) == 0) {
+		/* Load key through pkcs11 */
+		key->key = key_load_pkcs11(key->fn);
+	} else {
+		/* Load key from file */
+		FILE *fp = fopen(key->fn, "r");
+		if (fp == NULL) {
+			WARN("Cannot open file %s\n", key->fn);
+			return KEY_ERR_OPEN;
+		}
+
+		key->key = PEM_read_PrivateKey(fp, NULL, NULL, NULL);
+		fclose(fp);
+	}
+
+	if (key->key == NULL) {
+		ERROR("Cannot load key from %s\n", key->fn);
+		return KEY_ERR_LOAD;
+	}
+
+	return KEY_ERR_NONE;
+}
+
+int key_store(cert_key_t *key)
 {
 	FILE *fp;
 
 	if (key->fn) {
+		if (!strncmp(key->fn, "pkcs11:", 7)) {
+			ERROR("PKCS11 URI provided instead of a file");
+			return 0;
+		}
 		fp = fopen(key->fn, "w");
 		if (fp) {
 			PEM_write_PrivateKey(fp, key->key,
@@ -182,7 +309,7 @@ int key_store(key_t *key)
 int key_init(void)
 {
 	cmd_opt_t cmd_opt;
-	key_t *key;
+	cert_key_t *key;
 	unsigned int i;
 
 	keys = malloc((num_def_keys * sizeof(def_keys[0]))
@@ -222,9 +349,9 @@ int key_init(void)
 	return 0;
 }
 
-key_t *key_get_by_opt(const char *opt)
+cert_key_t *key_get_by_opt(const char *opt)
 {
-	key_t *key;
+	cert_key_t *key;
 	unsigned int i;
 
 	/* Sequential search. This is not a performance concern since the number
@@ -238,3 +365,20 @@ key_t *key_get_by_opt(const char *opt)
 
 	return NULL;
 }
+
+void key_cleanup(void)
+{
+	unsigned int i;
+
+	for (i = 0; i < num_keys; i++) {
+		EVP_PKEY_free(keys[i].key);
+		if (keys[i].fn != NULL) {
+			void *ptr = keys[i].fn;
+
+			free(ptr);
+			keys[i].fn = NULL;
+		}
+	}
+	free(keys);
+}
+

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2020, Renesas Electronics Corporation. All rights reserved.
+ * Copyright (c) 2015-2023, Renesas Electronics Corporation. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -40,7 +40,7 @@
 #define PLATFORM_STACK_SIZE	U(0x400)
 #endif
 #elif IMAGE_BL31
-#define PLATFORM_STACK_SIZE	U(0x400)
+#define PLATFORM_STACK_SIZE	U(0x800)
 #elif IMAGE_BL32
 #define PLATFORM_STACK_SIZE	U(0x440)
 #endif
@@ -144,14 +144,17 @@
  ******************************************************************************/
 #ifndef SPD_NONE
 #define BL32_BASE		U(0x44100000)
-#define BL32_LIMIT		(BL32_BASE + U(0x100000))
+#define BL32_SIZE		U(0x200000)
+#define BL32_LIMIT		(BL32_BASE + BL32_SIZE)
 #endif
 
 /*******************************************************************************
  * BL33
  ******************************************************************************/
 #define BL33_BASE		DRAM1_NS_BASE
-
+#define BL33_COMP_SIZE		U(0x200000)
+#define BL33_DECOMP_SIZE	(BL33_COMP_SIZE * 32)
+#define BL33_COMP_BASE		(BL33_BASE + BL33_DECOMP_SIZE)
 
 /*******************************************************************************
  * Platform specific page table and MMU setup constants

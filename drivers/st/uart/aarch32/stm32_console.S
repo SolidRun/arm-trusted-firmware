@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2018-2023, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -45,7 +45,18 @@ func console_stm32_core_init
 	/* Check the input base address */
 	cmp	r0, #0
 	beq	core_init_fail
-#if defined(IMAGE_BL2)
+#if !defined(IMAGE_BL2)
+#if STM32MP_RECONFIGURE_CONSOLE
+	/* UART clock rate is set to 0 in BL32, skip init in that case */
+	cmp	r1, #0
+	beq	1f
+#else /* STM32MP_RECONFIGURE_CONSOLE */
+	/* Skip UART initialization if it is already enabled */
+	ldr	r3, [r0, #USART_CR1]
+	ands	r3, r3, #USART_CR1_UE
+	bne	1f
+#endif /* STM32MP_RECONFIGURE_CONSOLE */
+#endif /* IMAGE_BL2 */
 	/* Check baud rate and uart clock for sanity */
 	cmp	r1, #0
 	beq	core_init_fail
@@ -62,9 +73,24 @@ func console_stm32_core_init
 	bic	r3, r3, #USART_CR2_STOP
 	str	r3, [r0, #USART_CR2]
 	/* Divisor =  (Uart clock + (baudrate / 2)) / baudrate */
-	lsl	r3, r2, #1
+	lsr	r3, r2, #1
 	add	r3, r1, r3
 	udiv	r3, r3, r2
+	cmp	r3, #16
+	bhi	2f
+	/* Oversampling 8 */
+	/* Divisor =  (2 * Uart clock + (baudrate / 2)) / baudrate */
+	lsr	r3, r2, #1
+	add	r3, r3, r1, lsl #1
+	udiv	r3, r3, r2
+	and	r1, r3, #USART_BRR_DIV_FRACTION
+	lsr	r1, r1, #1
+	bic	r3, r3, #USART_BRR_DIV_FRACTION
+	orr	r3, r3, r1
+	ldr	r1, [r0, #USART_CR1]
+	orr	r1, r1, #USART_CR1_OVER8
+	str	r1, [r0, #USART_CR1]
+2:
 	str	r3, [r0, #USART_BRR]
 	/* Enable UART */
 	ldr	r3, [r0, #USART_CR1]
@@ -78,7 +104,7 @@ teack_loop:
 	ldr	r3, [r0, #USART_ISR]
 	tst	r3, #USART_ISR_TEACK
 	beq	teack_loop
-#endif /* IMAGE_BL2 */
+1:
 	mov	r0, #1
 	bx	lr
 core_init_fail:
@@ -208,11 +234,16 @@ func console_stm32_core_flush
 	cmp	r0, #0
 	ASM_ASSERT(ne)
 #endif /* ENABLE_ASSERTIONS */
+	/* Skip flush if UART is not enabled */
+	ldr	r1, [r0, #USART_CR1]
+	tst	r1, #USART_CR1_UE
+	beq	1f
 	/* Check Transmit Data Register Empty */
 txe_loop_3:
 	ldr	r1, [r0, #USART_ISR]
 	tst	r1, #USART_ISR_TXE
 	beq	txe_loop_3
+1:
 	bx	lr
 endfunc console_stm32_core_flush
 

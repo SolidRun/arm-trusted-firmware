@@ -1,8 +1,12 @@
 /*
- * Copyright (c) 2016-2017, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2016-2024, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
+
+#ifdef __linux__
+#include <sys/mount.h>
+#endif
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -298,6 +302,7 @@ static int parse_fip(const char *filename, fip_toc_header_t *toc_header_out)
 	fip_toc_header_t *toc_header;
 	fip_toc_entry_t *toc_entry;
 	int terminated = 0;
+	size_t st_size;
 
 	fp = fopen(filename, "rb");
 	if (fp == NULL)
@@ -306,13 +311,21 @@ static int parse_fip(const char *filename, fip_toc_header_t *toc_header_out)
 	if (fstat(fileno(fp), &st) == -1)
 		log_err("fstat %s", filename);
 
-	buf = xmalloc(st.st_size, "failed to load file into memory");
-	if (fread(buf, 1, st.st_size, fp) != st.st_size)
+	st_size = st.st_size;
+
+#ifdef BLKGETSIZE64
+	if ((st.st_mode & S_IFBLK) != 0)
+		if (ioctl(fileno(fp), BLKGETSIZE64, &st_size) == -1)
+			log_err("ioctl %s", filename);
+#endif
+
+	buf = xmalloc(st_size, "failed to load file into memory");
+	if (fread(buf, 1, st_size, fp) != st_size)
 		log_errx("Failed to read %s", filename);
-	bufend = buf + st.st_size;
+	bufend = buf + st_size;
 	fclose(fp);
 
-	if (st.st_size < sizeof(fip_toc_header_t))
+	if (st_size < sizeof(fip_toc_header_t))
 		log_errx("FIP %s is truncated", filename);
 
 	toc_header = (fip_toc_header_t *)buf;
@@ -347,9 +360,11 @@ static int parse_fip(const char *filename, fip_toc_header_t *toc_header_out)
 		    "failed to allocate image buffer, is FIP file corrupted?");
 		/* Overflow checks before memory copy. */
 		if (toc_entry->size > (uint64_t)-1 - toc_entry->offset_address)
-			log_errx("FIP %s is corrupted", filename);
-		if (toc_entry->size + toc_entry->offset_address > st.st_size)
-			log_errx("FIP %s is corrupted", filename);
+			log_errx("FIP %s is corrupted: entry size exceeds 64 bit address space",
+				filename);
+		if (toc_entry->size + toc_entry->offset_address > st_size)
+			log_errx("FIP %s is corrupted: entry size exceeds FIP file size",
+				filename);
 
 		memcpy(image->buffer, buf + toc_entry->offset_address,
 		    toc_entry->size);
@@ -446,6 +461,7 @@ static struct option *fill_common_opts(struct option *opts, size_t *nr_opts,
 	return opts;
 }
 
+#if !STATIC
 static void md_print(const unsigned char *md, size_t len)
 {
 	size_t i;
@@ -453,6 +469,7 @@ static void md_print(const unsigned char *md, size_t len)
 	for (i = 0; i < len; i++)
 		printf("%02x", md[i]);
 }
+#endif
 
 static int info_cmd(int argc, char *argv[])
 {
@@ -484,7 +501,13 @@ static int info_cmd(int argc, char *argv[])
 		       (unsigned long long)image->toc_e.offset_address,
 		       (unsigned long long)image->toc_e.size,
 		       desc->cmdline_name);
-#ifndef _MSC_VER	/* We don't have SHA256 for Visual Studio. */
+
+		/*
+		 * Omit this informative code portion for:
+		 * Visual Studio missing SHA256.
+		 * Statically linked builds.
+		 */
+#if !defined(_MSC_VER) && !STATIC
 		if (verbose) {
 			unsigned char md[SHA256_DIGEST_LENGTH];
 
@@ -537,7 +560,7 @@ static int pack_images(const char *filename, uint64_t toc_flags, unsigned long a
 	for (desc = image_desc_head; desc != NULL; desc = desc->next) {
 		image_t *image = desc->image;
 
-		if (image == NULL)
+		if (image == NULL || (image->toc_e.size == 0ULL))
 			continue;
 		payload_size += image->toc_e.size;
 		entry_offset = (entry_offset + align - 1) & ~(align - 1);

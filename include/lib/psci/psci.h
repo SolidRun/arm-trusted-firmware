@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2013-2019, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2013-2024, Arm Limited and Contributors. All rights reserved.
+ * Copyright (c) 2023, NVIDIA Corporation. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -59,6 +60,7 @@
 #define PSCI_NODE_HW_STATE_AARCH64	U(0xc400000d)
 #define PSCI_SYSTEM_SUSPEND_AARCH32	U(0x8400000E)
 #define PSCI_SYSTEM_SUSPEND_AARCH64	U(0xc400000E)
+#define PSCI_SET_SUSPEND_MODE		U(0x8400000F)
 #define PSCI_STAT_RESIDENCY_AARCH32	U(0x84000010)
 #define PSCI_STAT_RESIDENCY_AARCH64	U(0xc4000010)
 #define PSCI_STAT_COUNT_AARCH32		U(0x84000011)
@@ -73,9 +75,17 @@
  * Number of PSCI calls (above) implemented
  */
 #if ENABLE_PSCI_STAT
-#define PSCI_NUM_CALLS			U(22)
+#if PSCI_OS_INIT_MODE
+#define PSCI_NUM_CALLS			U(30)
 #else
-#define PSCI_NUM_CALLS			U(18)
+#define PSCI_NUM_CALLS			U(29)
+#endif
+#else
+#if PSCI_OS_INIT_MODE
+#define PSCI_NUM_CALLS			U(26)
+#else
+#define PSCI_NUM_CALLS			U(25)
+#endif
 #endif
 
 /* The macros below are used to identify PSCI calls from the SMC function ID */
@@ -134,7 +144,11 @@
 
 /* Features flags for CPU SUSPEND OS Initiated mode support. Bits [0:0] */
 #define FF_MODE_SUPPORT_SHIFT		U(0)
+#if PSCI_OS_INIT_MODE
 #define FF_SUPPORTS_OS_INIT_MODE	U(1)
+#else
+#define FF_SUPPORTS_OS_INIT_MODE	U(0)
+#endif
 
 /*******************************************************************************
  * PSCI version
@@ -268,6 +282,13 @@ typedef struct psci_power_state {
 	 * for the CPU.
 	 */
 	plat_local_state_t pwr_domain_state[PLAT_MAX_PWR_LVL + U(1)];
+#if PSCI_OS_INIT_MODE
+	/*
+	 * The highest power level at which the current CPU is the last running
+	 * CPU.
+	 */
+	unsigned int last_at_pwrlvl;
+#endif
 } psci_power_state_t;
 
 /*******************************************************************************
@@ -281,7 +302,7 @@ typedef struct psci_cpu_data {
 
 	/*
 	 * Highest power level which takes part in a power management
-	 * operation.
+	 * operation. May be lower while the core is in suspend state.
 	 */
 	unsigned int target_pwrlvl;
 
@@ -297,6 +318,11 @@ typedef struct plat_psci_ops {
 	void (*cpu_standby)(plat_local_state_t cpu_state);
 	int (*pwr_domain_on)(u_register_t mpidr);
 	void (*pwr_domain_off)(const psci_power_state_t *target_state);
+	int (*pwr_domain_off_early)(const psci_power_state_t *target_state);
+#if PSCI_OS_INIT_MODE
+	int (*pwr_domain_validate_suspend)(
+				const psci_power_state_t *target_state);
+#endif
 	void (*pwr_domain_suspend_pwrdown_early)(
 				const psci_power_state_t *target_state);
 	void (*pwr_domain_suspend)(const psci_power_state_t *target_state);
@@ -305,10 +331,10 @@ typedef struct plat_psci_ops {
 				const psci_power_state_t *target_state);
 	void (*pwr_domain_suspend_finish)(
 				const psci_power_state_t *target_state);
-	void __dead2 (*pwr_domain_pwr_down_wfi)(
+	void (*pwr_domain_pwr_down)(
 				const psci_power_state_t *target_state);
-	void __dead2 (*system_off)(void);
-	void __dead2 (*system_reset)(void);
+	void (*system_off)(void);
+	void (*system_reset)(void);
 	int (*validate_power_state)(unsigned int power_state,
 				    psci_power_state_t *req_state);
 	int (*validate_ns_entrypoint)(uintptr_t ns_entrypoint);
@@ -347,7 +373,10 @@ u_register_t psci_migrate_info_up_cpu(void);
 int psci_node_hw_state(u_register_t target_cpu,
 		       unsigned int power_level);
 int psci_features(unsigned int psci_fid);
-void __dead2 psci_power_down_wfi(void);
+#if PSCI_OS_INIT_MODE
+int psci_set_suspend_mode(unsigned int mode);
+#endif
+void psci_power_down_wfi(void);
 void psci_arch_setup(void);
 
 #endif /*__ASSEMBLER__*/

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2020, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2017-2020, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -41,5 +41,6 @@ typedef enum {
 
 coreboot_memory_t coreboot_get_memory_type(uintptr_t start, size_t size);
 void coreboot_table_setup(void *base);
+void coreboot_get_table_location(uint64_t *address, uint32_t *size);
 
 #endif /* COREBOOT_H */

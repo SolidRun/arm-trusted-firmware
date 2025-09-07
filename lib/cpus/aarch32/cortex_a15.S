@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2019, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2016-2024, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -62,6 +62,7 @@ func check_errata_816470
 	bx	lr
 endfunc check_errata_816470
 
+add_erratum_entry cortex_a15, ERRATUM(816470), ERRATA_A15_816470
 	/* ----------------------------------------------------
 	 * Errata Workaround for Cortex A15 Errata #827671.
 	 * This applies only to revision >= r3p0 of Cortex A15.
@@ -91,6 +92,8 @@ func check_errata_827671
 	b	cpu_rev_var_hs
 endfunc check_errata_827671
 
+add_erratum_entry cortex_a15, ERRATUM(827671), ERRATA_A15_827671
+
 func check_errata_cve_2017_5715
 #if WORKAROUND_CVE_2017_5715
 	mov	r0, #ERRATA_APPLIES
@@ -100,28 +103,18 @@ func check_errata_cve_2017_5715
 	bx	lr
 endfunc check_errata_cve_2017_5715
 
-#if REPORT_ERRATA
-/*
- * Errata printing function for Cortex A15. Must follow AAPCS.
- */
-func cortex_a15_errata_report
-	push	{r12, lr}
+add_erratum_entry cortex_a15, CVE(2017, 5715), WORKAROUND_CVE_2017_5715
 
-	bl	cpu_get_rev_var
-	mov	r4, r0
-
-	/*
-	 * Report all errata. The revision-variant information is passed to
-	 * checking functions of each errata.
-	 */
-	report_errata ERRATA_A15_816470, cortex_a15, 816470
-	report_errata ERRATA_A15_827671, cortex_a15, 827671
-	report_errata WORKAROUND_CVE_2017_5715, cortex_a15, cve_2017_5715
-
-	pop	{r12, lr}
-	bx	lr
-endfunc cortex_a15_errata_report
+func check_errata_cve_2022_23960
+#if WORKAROUND_CVE_2022_23960
+	mov	r0, #ERRATA_APPLIES
+#else
+	mov	r0, #ERRATA_MISSING
 #endif
+	bx	lr
+endfunc check_errata_cve_2022_23960
+
+add_erratum_entry cortex_a15, CVE(2022, 23960), WORKAROUND_CVE_2022_23960
 
 func cortex_a15_reset_func
 	mov	r5, lr
@@ -131,11 +124,11 @@ func cortex_a15_reset_func
 	bl	errata_a15_827671_wa
 #endif
 
-#if IMAGE_BL32 && WORKAROUND_CVE_2017_5715
+#if IMAGE_BL32 && (WORKAROUND_CVE_2017_5715 || WORKAROUND_CVE_2022_23960)
 	ldcopr	r0, ACTLR
 	orr	r0, #CORTEX_A15_ACTLR_INV_BTB_BIT
 	stcopr	r0, ACTLR
-	ldr	r0, =workaround_icache_inv_runtime_exceptions
+	ldr	r0, =wa_cve_2017_5715_icache_inv_vbar
 	stcopr	r0, VBAR
 	stcopr	r0, MVBAR
 	/* isb will be applied in the course of the reset func */
@@ -169,6 +162,10 @@ func cortex_a15_cluster_pwr_dwn
 	bl	dcsw_op_level1
 
 	bl	plat_disable_acp
+
+	/* Flush L2 caches */
+	mov	r0, #DC_OP_CISW
+	bl	dcsw_op_level2
 
 	/* Exit cluster coherency */
 	pop	{r12, lr}

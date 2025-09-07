@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2020, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2017-2025, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -11,6 +11,7 @@
 #include <common/debug.h>
 #include <drivers/arm/css/css_scp.h>
 #include <drivers/arm/css/scmi.h>
+#include <lib/mmio.h>
 #include <plat/arm/common/plat_arm.h>
 #include <plat/arm/css/common/css_pm.h>
 #include <plat/common/platform.h>
@@ -286,15 +287,43 @@ int css_scp_get_power_state(u_register_t mpidr, unsigned int power_level)
 	return HW_OFF;
 }
 
-void __dead2 css_scp_system_off(int state)
+/*
+ * Callback function to raise a SGI designated to trigger the CPU power down
+ * sequence on all the online secondary cores.
+ */
+static void css_raise_pwr_down_interrupt(u_register_t mpidr)
+{
+#if CSS_SYSTEM_GRACEFUL_RESET
+	plat_ic_raise_el3_sgi(CSS_CPU_PWR_DOWN_REQ_INTR, mpidr);
+#endif
+}
+
+void css_scp_system_off(int state)
 {
 	int ret;
+
+	/*
+	 * Before issuing the system power down command, set the trusted mailbox
+	 * to 0. This will ensure that in the case of a warm/cold reset, the
+	 * primary CPU executes from the cold boot sequence.
+	 */
+	mmio_write_64(PLAT_ARM_TRUSTED_MAILBOX_BASE, 0U);
+
+	unsigned int core_pos = plat_my_core_pos();
+	/*
+	 * Send powerdown request to online secondary core(s)
+	 */
+	ret = psci_stop_other_cores(core_pos, 0, css_raise_pwr_down_interrupt);
+	if (ret != PSCI_E_SUCCESS) {
+		ERROR("Failed to powerdown secondary core(s)\n");
+	}
 
 	/*
 	 * Disable GIC CPU interface to prevent pending interrupt from waking
 	 * up the AP from WFI.
 	 */
-	plat_arm_gic_cpuif_disable();
+	gic_cpuif_disable(core_pos);
+	gic_pcpu_off(core_pos);
 
 	/*
 	 * Issue SCMI command. First issue a graceful
@@ -309,15 +338,15 @@ void __dead2 css_scp_system_off(int state)
 			state, ret);
 		panic();
 	}
-	wfi();
-	ERROR("CSS set power state: operation not handled.\n");
-	panic();
+
+	/* Powerdown of primary core */
+	psci_pwrdown_cpu_start(PLAT_MAX_PWR_LVL);
 }
 
 /*
  * Helper function to shutdown the system via SCMI.
  */
-void __dead2 css_scp_sys_shutdown(void)
+void css_scp_sys_shutdown(void)
 {
 	css_scp_system_off(SCMI_SYS_PWR_SHUTDOWN);
 }
@@ -325,7 +354,7 @@ void __dead2 css_scp_sys_shutdown(void)
 /*
  * Helper function to reset the system via SCMI.
  */
-void __dead2 css_scp_sys_reboot(void)
+void css_scp_sys_reboot(void)
 {
 	css_scp_system_off(SCMI_SYS_PWR_COLD_RESET);
 }
@@ -357,7 +386,7 @@ void __init plat_arm_pwrc_setup(void)
 	unsigned int composite_id, idx;
 
 	for (idx = 0; idx < PLAT_ARM_SCMI_CHANNEL_COUNT; idx++) {
-		INFO("Initializing driver on Channel %d\n", idx);
+		INFO("Initializing SCMI driver on channel %d\n", idx);
 
 		scmi_channels[idx].info = plat_css_get_scmi_info(idx);
 		scmi_channels[idx].lock = ARM_SCMI_LOCK_GET_INSTANCE;
@@ -441,12 +470,8 @@ int css_system_reset2(int is_vendor, int reset_type, u_register_t cookie)
 		return PSCI_E_INVALID_PARAMS;
 
 	css_scp_system_off(SCMI_SYS_PWR_WARM_RESET);
-	/*
-	 * css_scp_system_off cannot return (it is a __dead function),
-	 * but css_system_reset2 has to return some value, even in
-	 * this case.
-	 */
-	return 0;
+	/* return SUCCESS to finish the powerdown */
+	return PSCI_E_SUCCESS;
 }
 
 #if PROGRAMMABLE_RESET_ADDRESS

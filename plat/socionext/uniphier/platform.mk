@@ -1,10 +1,10 @@
 #
-# Copyright (c) 2017-2020, ARM Limited and Contributors. All rights reserved.
+# Copyright (c) 2017-2025, Arm Limited and Contributors. All rights reserved.
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
 
-override BL2_AT_EL3			:= 1
+override RESET_TO_BL2			:= 1
 override COLD_BOOT_SINGLE_CPU		:= 1
 override PROGRAMMABLE_RESET_ADDRESS	:= 1
 override USE_COHERENT_MEM		:= 1
@@ -88,10 +88,11 @@ ifeq (${TRUSTED_BOARD_BOOT},1)
 
 include drivers/auth/mbedtls/mbedtls_crypto.mk
 include drivers/auth/mbedtls/mbedtls_x509.mk
+AUTH_MK := drivers/auth/auth.mk
+$(info Including ${AUTH_MK})
+include ${AUTH_MK}
 
-BL2_SOURCES		+=	drivers/auth/auth_mod.c			\
-				drivers/auth/crypto_mod.c		\
-				drivers/auth/img_parser_mod.c		\
+BL2_SOURCES		+=	${AUTH_SOURCES}				\
 				drivers/auth/tbbr/tbbr_cot_common.c	\
 				drivers/auth/tbbr/tbbr_cot_bl2.c	\
 				plat/common/tbbr/plat_tbbr.c		\
@@ -105,14 +106,14 @@ $(eval $(call add_define_val,ROTPK_HASH,'"$(ROTPK_HASH)"'))
 $(BUILD_PLAT)/bl2/uniphier_rotpk.o: $(ROTPK_HASH)
 
 certificates: $(ROT_KEY)
-$(ROT_KEY): | $(BUILD_PLAT)
-	@echo "  OPENSSL $@"
-	$(Q)openssl genrsa 2048 > $@ 2>/dev/null
+$(ROT_KEY): | $$(@D)/
+	$(s)echo "  OPENSSL $@"
+	$(q)${OPENSSL_BIN_PATH}/openssl genrsa 2048 > $@ 2>/dev/null
 
-$(ROTPK_HASH): $(ROT_KEY)
-	@echo "  OPENSSL $@"
-	$(Q)openssl rsa -in $< -pubout -outform DER 2>/dev/null |\
-	openssl dgst -sha256 -binary > $@ 2>/dev/null
+$(ROTPK_HASH): $(ROT_KEY) | $$(@D)/
+	$(s)echo "  OPENSSL $@"
+	$(q)${OPENSSL_BIN_PATH}/openssl rsa -in $< -pubout -outform DER 2>/dev/null |\
+	${OPENSSL_BIN_PATH}/openssl dgst -sha256 -binary > $@ 2>/dev/null
 
 endif
 
@@ -136,5 +137,5 @@ endif
 .PHONY: bl2_gzip
 bl2_gzip: $(BUILD_PLAT)/bl2.bin.gz
 %.gz: %
-	@echo "  GZIP    $@"
-	$(Q)gzip -n -f -9 $< --stdout > $@
+	$(s)echo "  GZIP    $@"
+	$(q)gzip -n -f -9 $< --stdout > $@

@@ -1,10 +1,12 @@
 /*
- * Copyright (c) 2015-2020, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2015-2024, ARM Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
 #include <assert.h>
+#include <inttypes.h>
+#include <stdint.h>
 #include <stdbool.h>
 
 #include <platform_def.h>
@@ -17,7 +19,7 @@
 #include <drivers/console.h>
 #include <lib/el3_runtime/context_mgmt.h>
 #include <lib/mmio.h>
-#include <lib/xlat_tables/xlat_tables.h>
+#include <lib/xlat_tables/xlat_tables_v2.h>
 #include <plat/common/platform.h>
 
 #include <imx8qm_pads.h>
@@ -60,7 +62,7 @@ static entry_point_info_t bl33_image_ep_info;
 #error "Provide proper UART number in IMX_DEBUG_UART"
 #endif
 
-const static int imx8qm_cci_map[] = {
+static const int imx8qm_cci_map[] = {
 	CLUSTER0_CCI_SLVAE_IFACE,
 	CLUSTER1_CCI_SLVAE_IFACE
 };
@@ -261,14 +263,14 @@ void mx8_partition_resources(void)
 			err = sc_rm_get_memreg_info(ipc_handle, mr, &start, &end);
 			if (err)
 				ERROR("Memreg get info failed, %u\n", mr);
-			NOTICE("Memreg %u 0x%llx -- 0x%llx\n", mr, start, end);
+			NOTICE("Memreg %u 0x%" PRIx64 " -- 0x%" PRIx64 "\n", mr, start, end);
 			if (BL31_BASE >= start && (BL31_LIMIT - 1) <= end) {
 				mr_record = mr; /* Record the mr for ATF running */
 			} else {
 				err = sc_rm_assign_memreg(ipc_handle, os_part, mr);
 				if (err)
-					ERROR("Memreg assign failed, 0x%llx -- 0x%llx, \
-						err %d\n", start, end, err);
+					ERROR("Memreg assign failed, 0x%" PRIx64 " -- 0x%" PRIx64 ", \
+					      err %d\n", start, end, err);
 			}
 		}
 	}
@@ -280,23 +282,23 @@ void mx8_partition_resources(void)
 		if ((BL31_LIMIT - 1) < end) {
 			err = sc_rm_memreg_alloc(ipc_handle, &mr, BL31_LIMIT, end);
 			if (err)
-				ERROR("sc_rm_memreg_alloc failed, 0x%llx -- 0x%llx\n",
-					(sc_faddr_t)BL31_LIMIT, end);
+				ERROR("sc_rm_memreg_alloc failed, 0x%" PRIx64 " -- 0x%" PRIx64 "\n",
+				      (sc_faddr_t)BL31_LIMIT, end);
 			err = sc_rm_assign_memreg(ipc_handle, os_part, mr);
 			if (err)
-				ERROR("Memreg assign failed, 0x%llx -- 0x%llx\n",
-					(sc_faddr_t)BL31_LIMIT, end);
+				ERROR("Memreg assign failed, 0x%" PRIx64 " -- 0x%" PRIx64 "\n",
+				      (sc_faddr_t)BL31_LIMIT, end);
 		}
 
 		if (start < (BL31_BASE - 1)) {
 			err = sc_rm_memreg_alloc(ipc_handle, &mr, start, BL31_BASE - 1);
 			if (err)
-				ERROR("sc_rm_memreg_alloc failed, 0x%llx -- 0x%llx\n",
-					start, (sc_faddr_t)BL31_BASE - 1);
+				ERROR("sc_rm_memreg_alloc failed, 0x%" PRIx64 " -- 0x%" PRIx64 "\n",
+				      start, (sc_faddr_t)BL31_BASE - 1);
 			err = sc_rm_assign_memreg(ipc_handle, os_part, mr);
 				if (err)
-					ERROR("Memreg assign failed, 0x%llx -- 0x%llx\n",
-						start, (sc_faddr_t)BL31_BASE - 1);
+					ERROR("Memreg assign failed, 0x%" PRIx64 " -- 0x%" PRIx64 "\n",
+					      start, (sc_faddr_t)BL31_BASE - 1);
 		}
 	}
 
@@ -405,9 +407,4 @@ entry_point_info_t *bl31_plat_get_next_image_ep_info(unsigned int type)
 unsigned int plat_get_syscnt_freq2(void)
 {
 	return COUNTER_FREQUENCY;
-}
-
-void bl31_plat_runtime_setup(void)
-{
-	return;
 }

@@ -15,6 +15,10 @@ You can find additional definitions in the `Arm Glossary`_.
    AArch64
       64-bit execution state of the ARMv8 ISA
 
+   AMU
+      Activity Monitor Unit, a hardware monitoring unit introduced by FEAT_AMUv1
+      that exposes CPU core runtime metrics as a set of counter registers.
+
    API
       Application Programming Interface
 
@@ -32,9 +36,30 @@ You can find additional definitions in the `Arm Glossary`_.
    CSS
       Compute Sub-System
 
+   CRB
+      Command Response Buffer
+
    CVE
       Common Vulnerabilities and Exposures. A CVE document is commonly used to
       describe a publicly-known security vulnerability.
+
+   DICE
+      Device Identifier Composition Engine
+
+   DCE
+      DRTM Configuration Environment
+
+   D-CRTM
+      Dynamic Code Root of Trust for Measurement
+
+   DLME
+      Dynamically Launched Measured Environment
+
+   DRTM
+      Dynamic Root of Trust for Measurement
+
+   DPE
+      DICE Protection Environment
 
    DS-5
       Arm Development Studio 5
@@ -54,14 +79,20 @@ You can find additional definitions in the `Arm Glossary`_.
    EHF
       Exception Handling Framework
 
+   ERRATA_ABI
+      Errata management firmware interface
+
    FCONF
       Firmware Configuration Framework
 
    FDT
       Flattened Device Tree
 
-   FFA
-      Firmware Framework for A-class processors
+   FF-A
+      Firmware Framework for Arm A-profile
+
+   FIFO
+      First In, First Out
 
    FIP
       Firmware Image Package
@@ -75,6 +106,12 @@ You can find additional definitions in the `Arm Glossary`_.
    GIC
       Generic Interrupt Controller
 
+   HES
+      Arm CCA Hardware Enforced Security
+
+   I2C
+      Inter-Integrated Circuit Protocol
+
    ISA
       Instruction Set Architecture
 
@@ -82,11 +119,18 @@ You can find additional definitions in the `Arm Glossary`_.
       A collaborative engineering organization consolidating
       and optimizing open source software and tools for the Arm architecture.
 
+   LSP
+      A logical secure partition managed by SPM
+
    MMU
       Memory Management Unit
 
    MPAM
       Memory Partitioning And Monitoring. An optional Armv8.4 extension.
+
+   MPMM
+     Maximum Power Mitigation Mechanism, an optional power management mechanism
+     supported by some Arm Armv9-A cores.
 
    MPIDR
       Multiprocessor Affinity Register
@@ -94,6 +138,9 @@ You can find additional definitions in the `Arm Glossary`_.
    MTE
       Memory Tagging Extension. An optional Armv8.5 extension that enables
       hardware-assisted memory tagging.
+
+   LTS
+      Long-Term Support
 
    OEN
       Owning Entity Number
@@ -103,6 +150,9 @@ You can find additional definitions in the `Arm Glossary`_.
 
    OTE
       Open-source Trusted Execution Environment
+
+   PCR
+      Platform Configuration Register
 
    PDD
       Platform Design Document
@@ -116,6 +166,9 @@ You can find additional definitions in the `Arm Glossary`_.
    PSA
       Platform Security Architecture
 
+   PSR
+     Platform Security Requirements
+
    PSCI
       Power State Coordination Interface
 
@@ -126,6 +179,9 @@ You can find additional definitions in the `Arm Glossary`_.
 
    ROT
       Root of Trust
+
+   RSE
+      Runtime Security Engine
 
    SCMI
       System Control and Management Interface
@@ -164,6 +220,12 @@ You can find additional definitions in the `Arm Glossary`_.
    SPM
       Secure Partition Manager
 
+   SPI
+      Serial Peripheral Interface
+
+   SRTM
+      Static Root of Trust for Measurement
+
    SSBS
       Speculative Store Bypass Safe. Introduced in Armv8.5, this configuration
       bit can be set by software to allow or prevent the hardware from
@@ -177,6 +239,12 @@ You can find additional definitions in the `Arm Glossary`_.
 
    TBBR
       Trusted Board Boot Requirements
+
+   TCB
+      Trusted Compute Base
+
+   TCG
+      Trusted Computing Group
 
    TEE
       Trusted Execution Environment
@@ -193,8 +261,11 @@ You can find additional definitions in the `Arm Glossary`_.
    TLK
       Trusted Little Kernel. A Trusted OS from NVIDIA.
 
+   TPM
+      Trusted Platform Module
+
    TRNG
-      True Randon Number Generator (hardware based)
+      True Random Number Generator (hardware based)
 
    TSP
       Test Secure Payload

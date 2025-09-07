@@ -1,15 +1,16 @@
 /*
- * Copyright (c) 2019, STMicroelectronics - All Rights Reserved
+ * Copyright (c) 2019-2022, STMicroelectronics - All Rights Reserved
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
 #include <assert.h>
-
-#include <libfdt.h>
+#include <inttypes.h>
+#include <stdint.h>
 
 #include <drivers/spi_mem.h>
 #include <lib/utils_def.h>
+#include <libfdt.h>
 
 #define SPI_MEM_DEFAULT_SPEED_HZ 100000U
 
@@ -150,7 +151,7 @@ int spi_mem_exec_op(const struct spi_mem_op *op)
 	const struct spi_bus_ops *ops = spi_slave.ops;
 	int ret;
 
-	VERBOSE("%s: cmd:%x mode:%d.%d.%d.%d addqr:%llx len:%x\n",
+	VERBOSE("%s: cmd:%x mode:%d.%d.%d.%d addqr:%" PRIx64 " len:%x\n",
 		__func__, op->cmd.opcode, op->cmd.buswidth, op->addr.buswidth,
 		op->dummy.buswidth, op->data.buswidth,
 		op->addr.val, op->data.nbytes);
@@ -256,7 +257,7 @@ int spi_mem_init_slave(void *fdt, int bus_node, const struct spi_bus_ops *ops)
 				mode |= SPI_TX_QUAD;
 				break;
 			default:
-				WARN("spi-tx-bus-width %d not supported\n",
+				WARN("spi-tx-bus-width %u not supported\n",
 				     fdt32_to_cpu(*cuint));
 				return -EINVAL;
 			}
@@ -274,7 +275,7 @@ int spi_mem_init_slave(void *fdt, int bus_node, const struct spi_bus_ops *ops)
 				mode |= SPI_RX_QUAD;
 				break;
 			default:
-				WARN("spi-rx-bus-width %d not supported\n",
+				WARN("spi-rx-bus-width %u not supported\n",
 				     fdt32_to_cpu(*cuint));
 				return -EINVAL;
 			}

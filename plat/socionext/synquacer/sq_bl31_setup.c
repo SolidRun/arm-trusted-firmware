@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2018-2024, ARM Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -24,12 +24,55 @@ IMPORT_SYM(uintptr_t, __SPM_SHIM_EXCEPTIONS_START__, SPM_SHIM_EXCEPTIONS_START);
 IMPORT_SYM(uintptr_t, __SPM_SHIM_EXCEPTIONS_END__,   SPM_SHIM_EXCEPTIONS_END);
 IMPORT_SYM(uintptr_t, __SPM_SHIM_EXCEPTIONS_LMA__,   SPM_SHIM_EXCEPTIONS_LMA);
 
+unsigned int plat_get_syscnt_freq2(void)
+{
+	unsigned int counter_base_frequency;
+
+	/* Read the frequency from Frequency modes table */
+	counter_base_frequency = mmio_read_32(SQ_SYS_CNTCTL_BASE + CNTFID_OFF);
+
+	/* The first entry of the frequency modes table must not be 0 */
+	if (counter_base_frequency == 0)
+		panic();
+
+	return counter_base_frequency;
+}
+
 entry_point_info_t *bl31_plat_get_next_image_ep_info(uint32_t type)
 {
 	assert(sec_state_is_valid(type));
 	return type == NON_SECURE ? &bl33_image_ep_info : &bl32_image_ep_info;
 }
 
+#if !RESET_TO_BL31
+void bl31_early_platform_setup2(u_register_t arg0, u_register_t arg1,
+				u_register_t arg2, u_register_t arg3)
+{
+	void *from_bl2 = (void *) arg0;
+	bl_params_node_t *bl_params = ((bl_params_t *) from_bl2)->head;
+
+	/* Initialize the console to provide early debug support */
+	(void)console_pl011_register(PLAT_SQ_BOOT_UART_BASE,
+			       PLAT_SQ_BOOT_UART_CLK_IN_HZ,
+			       SQ_CONSOLE_BAUDRATE, &console);
+
+	console_set_scope(&console, CONSOLE_FLAG_BOOT | CONSOLE_FLAG_RUNTIME);
+
+	/* Initialize power controller before setting up topology */
+	plat_sq_pwrc_setup();
+
+	while (bl_params) {
+		if (bl_params->image_id == BL32_IMAGE_ID)
+			bl32_image_ep_info = *bl_params->ep_info;
+
+		if (bl_params->image_id == BL33_IMAGE_ID)
+			bl33_image_ep_info = *bl_params->ep_info;
+
+		bl_params = bl_params->next_params_info;
+	}
+}
+
+#else
 /*******************************************************************************
  * Gets SPSR for BL32 entry
  ******************************************************************************/
@@ -115,10 +158,12 @@ void bl31_early_platform_setup2(u_register_t arg0, u_register_t arg1,
 	bl33_image_ep_info.spsr = sq_get_spsr_for_bl33_entry();
 	SET_SECURITY_STATE(bl33_image_ep_info.h.attr, NON_SECURE);
 }
+#endif
 
 static void sq_configure_sys_timer(void)
 {
 	unsigned int reg_val;
+	unsigned int freq_val = plat_get_syscnt_freq2();
 
 	reg_val = (1 << CNTACR_RPCT_SHIFT) | (1 << CNTACR_RVCT_SHIFT);
 	reg_val |= (1 << CNTACR_RFRQ_SHIFT) | (1 << CNTACR_RVOFF_SHIFT);
@@ -128,6 +173,17 @@ static void sq_configure_sys_timer(void)
 
 	reg_val = (1 << CNTNSAR_NS_SHIFT(PLAT_SQ_NSTIMER_FRAME_ID));
 	mmio_write_32(SQ_SYS_TIMCTL_BASE + CNTNSAR, reg_val);
+
+	/* Initialize CNTFRQ register in CNTCTLBase frame */
+	mmio_write_32(SQ_SYS_TIMCTL_BASE + CNTCTLBASE_CNTFRQ, freq_val);
+
+	/*
+	 * Initialize CNTFRQ register in Non-secure CNTBase frame.
+	 * This is required for SynQuacer, because it does not
+	 * follow ARM ARM in that the value updated in CNTFRQ is not
+	 * reflected in CNTBASEN_CNTFRQ. Hence update the value manually.
+	 */
+	mmio_write_32(SQ_SYS_CNT_BASE_NS + CNTBASEN_CNTFRQ, freq_val);
 }
 
 void bl31_platform_setup(void)
@@ -166,6 +222,11 @@ void bl31_plat_arch_setup(void)
 				PLAT_SQ_SP_PRIV_SIZE,
 				MT_RW_DATA | MT_SECURE),
 #endif
+#if !RESET_TO_BL31
+		MAP_REGION_FLAT(BL2_MAILBOX_BASE,
+				BL2_MAILBOX_SIZE,
+				MT_RW | MT_SECURE),
+#endif
 		{0},
 	};
 
@@ -183,18 +244,4 @@ void bl31_plat_arch_setup(void)
 void bl31_plat_enable_mmu(uint32_t flags)
 {
 	enable_mmu_el3(flags | XLAT_TABLE_NC);
-}
-
-unsigned int plat_get_syscnt_freq2(void)
-{
-	unsigned int counter_base_frequency;
-
-	/* Read the frequency from Frequency modes table */
-	counter_base_frequency = mmio_read_32(SQ_SYS_CNTCTL_BASE + CNTFID_OFF);
-
-	/* The first entry of the frequency modes table must not be 0 */
-	if (counter_base_frequency == 0)
-		panic();
-
-	return counter_base_frequency;
 }

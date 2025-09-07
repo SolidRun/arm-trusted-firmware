@@ -1,6 +1,7 @@
 /*
  * Copyright (c) 2019-2020, ARM Limited and Contributors. All rights reserved.
- * Copyright (c) 2019-2020, Intel Corporation. All rights reserved.
+ * Copyright (c) 2019-2022, Intel Corporation. All rights reserved.
+ * Copyright (c) 2025, Altera Corporation. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -17,6 +18,7 @@
 #include <platform_def.h>
 
 #include "socfpga_mailbox.h"
+#include "socfpga_noc.h"
 #include "socfpga_private.h"
 #include "socfpga_reset_manager.h"
 #include "socfpga_system_manager.h"
@@ -49,8 +51,8 @@ void bl31_early_platform_setup2(u_register_t arg0, u_register_t arg1,
 
 	mmio_write_64(PLAT_SEC_ENTRY, PLAT_SEC_WARM_ENTRY);
 
-	console_16550_register(PLAT_UART0_BASE, PLAT_UART_CLOCK, PLAT_BAUDRATE,
-		&console);
+	console_16550_register(PLAT_INTEL_UART_BASE, PLAT_UART_CLOCK,
+		PLAT_BAUDRATE, &console);
 	/*
 	 * Check params passed from BL31 should not be NULL,
 	 */
@@ -121,6 +123,16 @@ void bl31_platform_setup(void)
 	mmio_write_64(PLAT_CPU_RELEASE_ADDR,
 		(uint64_t)plat_secondary_cpus_bl31_entry);
 
+#if SIP_SVC_V3
+	/*
+	 * Re-initialize the mailbox to include V3 specific routines.
+	 * In V3, this re-initialize is required because prior to BL31, U-Boot
+	 * SPL has its own mailbox settings and this initialization will
+	 * override to those settings as required by the V3 framework.
+	 */
+	mailbox_init();
+#endif
+
 	mailbox_hps_stage_notify(HPS_EXECUTION_STATE_SSBL);
 }
 
@@ -144,7 +156,7 @@ const mmap_region_t plat_stratix10_mmap[] = {
 
 /*******************************************************************************
  * Perform the very early platform specific architectural setup here. At the
- * moment this is only intializes the mmu in a quick and dirty way.
+ * moment this is only initializes the mmu in a quick and dirty way.
  ******************************************************************************/
 void bl31_plat_arch_setup(void)
 {

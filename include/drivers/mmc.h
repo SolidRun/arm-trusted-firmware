@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2021-2022, ARM Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -19,29 +19,29 @@
 
 #define MMC_ACMD(_x)			U(_x)
 
-#define OCR_POWERUP			BIT(31)
-#define OCR_HCS				BIT(30)
-#define OCR_BYTE_MODE			(U(0) << 29)
-#define OCR_SECTOR_MODE			(U(2) << 29)
-#define OCR_ACCESS_MODE_MASK		(U(3) << 29)
-#define OCR_3_5_3_6			BIT(23)
-#define OCR_3_4_3_5			BIT(22)
-#define OCR_3_3_3_4			BIT(21)
-#define OCR_3_2_3_3			BIT(20)
-#define OCR_3_1_3_2			BIT(19)
-#define OCR_3_0_3_1			BIT(18)
-#define OCR_2_9_3_0			BIT(17)
-#define OCR_2_8_2_9			BIT(16)
-#define OCR_2_7_2_8			BIT(15)
-#define OCR_VDD_MIN_2V7			GENMASK(23, 15)
-#define OCR_VDD_MIN_2V0			GENMASK(14, 8)
-#define OCR_VDD_MIN_1V7			BIT(7)
+#define OCR_POWERUP			BIT_32(31U)
+#define OCR_HCS				BIT_32(30U)
+#define OCR_BYTE_MODE			(U(0) << 29U)
+#define OCR_SECTOR_MODE			(U(2) << 29U)
+#define OCR_ACCESS_MODE_MASK		(U(3) << 29U)
+#define OCR_3_5_3_6			BIT_32(23U)
+#define OCR_3_4_3_5			BIT_32(22U)
+#define OCR_3_3_3_4			BIT_32(21U)
+#define OCR_3_2_3_3			BIT_32(20U)
+#define OCR_3_1_3_2			BIT_32(19U)
+#define OCR_3_0_3_1			BIT_32(18U)
+#define OCR_2_9_3_0			BIT_32(17U)
+#define OCR_2_8_2_9			BIT_32(16U)
+#define OCR_2_7_2_8			BIT_32(15U)
+#define OCR_VDD_MIN_2V7			GENMASK_32(23U, 15U)
+#define OCR_VDD_MIN_2V0			GENMASK_32(14U, 8U)
+#define OCR_VDD_MIN_1V7			BIT_32(7U)
 
-#define MMC_RSP_48			BIT(0)
-#define MMC_RSP_136			BIT(1)		/* 136 bit response */
-#define MMC_RSP_CRC			BIT(2)		/* expect valid crc */
-#define MMC_RSP_CMD_IDX			BIT(3)		/* response contains cmd idx */
-#define MMC_RSP_BUSY			BIT(4)		/* device may be busy */
+#define MMC_RSP_48			BIT_32(0U)
+#define MMC_RSP_136			BIT_32(1U)		/* 136 bit response */
+#define MMC_RSP_CRC			BIT_32(2U)		/* expect valid crc */
+#define MMC_RSP_CMD_IDX			BIT_32(3U)		/* response contains cmd idx */
+#define MMC_RSP_BUSY			BIT_32(4U)		/* device may be busy */
 
 /* JEDEC 4.51 chapter 6.12 */
 #define MMC_RESPONSE_R1			(MMC_RSP_48 | MMC_RSP_CMD_IDX | MMC_RSP_CRC)
@@ -60,10 +60,18 @@
 #define CMD_EXTCSD_PARTITION_CONFIG	179
 #define CMD_EXTCSD_BUS_WIDTH		183
 #define CMD_EXTCSD_HS_TIMING		185
+#define CMD_EXTCSD_PART_SWITCH_TIME	199
 #define CMD_EXTCSD_SEC_CNT		212
+#define CMD_EXTCSD_BOOT_SIZE_MULT	226
 
+#define EXT_CSD_PART_CONFIG_ACC_MASK	GENMASK(2, 0)
 #define PART_CFG_BOOT_PARTITION1_ENABLE	(U(1) << 3)
-#define PART_CFG_PARTITION1_ACCESS	(U(1) << 0)
+#define PART_CFG_BOOT_PARTITION1_ACCESS (U(1) << 0)
+#define PART_CFG_BOOT_PARTITION_NO_ACCESS	U(0)
+#define PART_CFG_BOOT_PART_EN_MASK		GENMASK(5, 3)
+#define PART_CFG_BOOT_PART_EN_SHIFT		3
+#define PART_CFG_CURRENT_BOOT_PARTITION(x)	(((x) & PART_CFG_BOOT_PART_EN_MASK) >> \
+	PART_CFG_BOOT_PART_EN_SHIFT)
 
 /* Values in EXT CSD register */
 #define MMC_BUS_WIDTH_1			U(0)
@@ -104,12 +112,17 @@
 #define MMC_STATE_SLP			10
 
 #define MMC_FLAG_CMD23			(U(1) << 0)
+#define MMC_FLAG_SD_CMD6		(U(1) << 1)
 
 #define CMD8_CHECK_PATTERN		U(0xAA)
 #define VHS_2_7_3_6_V			BIT(8)
 
 #define SD_SCR_BUS_WIDTH_1		BIT(8)
 #define SD_SCR_BUS_WIDTH_4		BIT(10)
+
+#define SD_SWITCH_FUNC_CHECK		0U
+#define SD_SWITCH_FUNC_SWITCH		BIT(31)
+#define SD_SWITCH_ALL_GROUPS_MASK	GENMASK(23, 0)
 
 struct mmc_cmd {
 	unsigned int	cmd_idx;
@@ -210,6 +223,27 @@ struct mmc_csd_sd_v2 {
 	unsigned int		csd_structure:		2;
 };
 
+struct sd_switch_status {
+	unsigned short		max_current;
+	unsigned short		support_g6;
+	unsigned short		support_g5;
+	unsigned short		support_g4;
+	unsigned short		support_g3;
+	unsigned short		support_g2;
+	unsigned short		support_g1;
+	unsigned char		sel_g6_g5;
+	unsigned char		sel_g4_g3;
+	unsigned char		sel_g2_g1;
+	unsigned char		data_struct_ver;
+	unsigned short		busy_g6;
+	unsigned short		busy_g5;
+	unsigned short		busy_g4;
+	unsigned short		busy_g3;
+	unsigned short		busy_g2;
+	unsigned short		busy_g1;
+	unsigned short		reserved[17];
+};
+
 enum mmc_device_type {
 	MMC_IS_EMMC,
 	MMC_IS_SD,
@@ -227,9 +261,10 @@ struct mmc_device_info {
 size_t mmc_read_blocks(int lba, uintptr_t buf, size_t size);
 size_t mmc_write_blocks(int lba, const uintptr_t buf, size_t size);
 size_t mmc_erase_blocks(int lba, size_t size);
-size_t mmc_rpmb_read_blocks(int lba, uintptr_t buf, size_t size);
-size_t mmc_rpmb_write_blocks(int lba, const uintptr_t buf, size_t size);
-size_t mmc_rpmb_erase_blocks(int lba, size_t size);
+int mmc_part_switch_current_boot(void);
+int mmc_part_switch_user(void);
+size_t mmc_boot_part_size(void);
+size_t mmc_boot_part_read_blocks(int lba, uintptr_t buf, size_t size);
 int mmc_init(const struct mmc_ops *ops_ptr, unsigned int clk,
 	     unsigned int width, unsigned int flags,
 	     struct mmc_device_info *device_info);

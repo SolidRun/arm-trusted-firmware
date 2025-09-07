@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2015-2021, Xilinx Inc.
+ * Copyright (c) 2015-2022, Xilinx Inc.
+ * Copyright (c) 2022-2024, Advanced Micro Devices, Inc. All rights reserved.
  * Written by Michal Simek.
  *
  * SPDX-License-Identifier: BSD-3-Clause
@@ -45,7 +46,7 @@
 #define TIMEOUT_COUNT_US	U(0x10624)
 
 struct dcc_console {
-	struct console console;
+	console_t console;
 };
 
 static inline uint32_t __dcc_getstatus(void)
@@ -53,6 +54,7 @@ static inline uint32_t __dcc_getstatus(void)
 	return read_mdccsr_el0();
 }
 
+#if ENABLE_CONSOLE_GETC
 static inline char __dcc_getchar(void)
 {
 	char c;
@@ -61,6 +63,7 @@ static inline char __dcc_getchar(void)
 
 	return c;
 }
+#endif
 
 static inline void __dcc_putchar(char c)
 {
@@ -102,6 +105,7 @@ static int32_t dcc_console_putc(int32_t ch, struct console *console)
 	return ch;
 }
 
+#if ENABLE_CONSOLE_GETC
 static int32_t dcc_console_getc(struct console *console)
 {
 	unsigned int status;
@@ -113,12 +117,7 @@ static int32_t dcc_console_getc(struct console *console)
 
 	return __dcc_getchar();
 }
-
-int32_t dcc_console_init(unsigned long base_addr, uint32_t uart_clk,
-		      uint32_t baud_rate)
-{
-	return 0; /* No init needed */
-}
+#endif
 
 /**
  * dcc_console_flush() - Function to force a write of all buffered data
@@ -139,14 +138,24 @@ static void dcc_console_flush(struct console *console)
 static struct dcc_console dcc_console = {
 	.console = {
 		.flags = CONSOLE_FLAG_BOOT |
-			CONSOLE_FLAG_RUNTIME,
+			CONSOLE_FLAG_RUNTIME |
+			CONSOLE_FLAG_CRASH,
 		.putc = dcc_console_putc,
+#if ENABLE_CONSOLE_GETC
 		.getc = dcc_console_getc,
+#endif
 		.flush = dcc_console_flush,
 	},
 };
 
-int console_dcc_register(void)
+int console_dcc_register(console_t *console)
 {
-	return console_register(&dcc_console.console);
+	memcpy(console, &dcc_console.console, sizeof(console_t));
+	return console_register(console);
+}
+
+void console_dcc_unregister(console_t *console)
+{
+	dcc_console_flush(console);
+	(void)console_unregister(console);
 }

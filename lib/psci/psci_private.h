@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2020, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2013-2025, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -46,6 +46,9 @@
  * define a limit to number of CPUs that can be initialised.
  */
 #define PSCI_MAX_CPUS_INDEX	0xFFFFU
+
+/* Invalid parent */
+#define PSCI_PARENT_NODE_INVALID	0xFFFFFFFFU
 
 /*
  * Helper functions to get/set the fields of PSCI per-cpu data.
@@ -160,6 +163,16 @@ typedef struct cpu_pwr_domain_node {
 	spinlock_t cpu_lock;
 } cpu_pd_node_t;
 
+#if PSCI_OS_INIT_MODE
+/*******************************************************************************
+ * The supported power state coordination modes that can be used in CPU_SUSPEND.
+ ******************************************************************************/
+typedef enum suspend_mode {
+	PLAT_COORD = 0,
+	OS_INIT = 1
+} suspend_mode_t;
+#endif
+
 /*******************************************************************************
  * The following are helpers and declarations of locks.
  ******************************************************************************/
@@ -257,6 +270,9 @@ extern non_cpu_pd_node_t psci_non_cpu_pd_nodes[PSCI_NUM_NON_CPU_PWR_DOMAINS];
 extern cpu_pd_node_t psci_cpu_pd_nodes[PLATFORM_CORE_COUNT];
 extern unsigned int psci_caps;
 extern unsigned int psci_plat_core_count;
+#if PSCI_OS_INIT_MODE
+extern suspend_mode_t psci_suspend_mode;
+#endif
 
 /*******************************************************************************
  * SPD's power management hooks registered with PSCI
@@ -270,17 +286,30 @@ extern const spd_pm_ops_t *psci_spd_pm;
 int psci_validate_power_state(unsigned int power_state,
 			      psci_power_state_t *state_info);
 void psci_query_sys_suspend_pwrstate(psci_power_state_t *state_info);
-int psci_validate_mpidr(u_register_t mpidr);
 void psci_init_req_local_pwr_states(void);
-void psci_get_target_local_pwr_states(unsigned int end_pwrlvl,
+#if PSCI_OS_INIT_MODE
+void psci_update_req_local_pwr_states(unsigned int end_pwrlvl,
+				      unsigned int cpu_idx,
+				      psci_power_state_t *state_info,
+				      plat_local_state_t *prev);
+void psci_restore_req_local_pwr_states(unsigned int cpu_idx,
+				       plat_local_state_t *prev);
+#endif
+void psci_get_target_local_pwr_states(unsigned int cpu_idx, unsigned int end_pwrlvl,
 				      psci_power_state_t *target_state);
+void psci_set_target_local_pwr_states(unsigned int cpu_idx, unsigned int end_pwrlvl,
+				      const psci_power_state_t *target_state);
 int psci_validate_entry_point(entry_point_info_t *ep,
 			uintptr_t entrypoint, u_register_t context_id);
 void psci_get_parent_pwr_domain_nodes(unsigned int cpu_idx,
 				      unsigned int end_lvl,
 				      unsigned int *node_index);
-void psci_do_state_coordination(unsigned int end_pwrlvl,
+void psci_do_state_coordination(unsigned int cpu_idx, unsigned int end_pwrlvl,
 				psci_power_state_t *state_info);
+#if PSCI_OS_INIT_MODE
+int psci_validate_state_coordination(unsigned int cpu_idx, unsigned int end_pwrlvl,
+				     psci_power_state_t *state_info);
+#endif
 void psci_acquire_pwr_domain_locks(unsigned int end_pwrlvl,
 				   const unsigned int *parent_nodes);
 void psci_release_pwr_domain_locks(unsigned int end_pwrlvl,
@@ -289,11 +318,10 @@ int psci_validate_suspend_req(const psci_power_state_t *state_info,
 			      unsigned int is_power_down_state);
 unsigned int psci_find_max_off_lvl(const psci_power_state_t *state_info);
 unsigned int psci_find_target_suspend_lvl(const psci_power_state_t *state_info);
-void psci_set_pwr_domains_to_run(unsigned int end_pwrlvl);
+void psci_set_pwr_domains_to_run(unsigned int cpu_idx, unsigned int end_pwrlvl);
 void psci_print_power_domain_map(void);
-unsigned int psci_is_last_on_cpu(void);
+bool psci_is_last_on_cpu(unsigned int my_idx);
 int psci_spd_migrate_info(u_register_t *mpidr);
-void psci_do_pwrdown_sequence(unsigned int power_level);
 
 /*
  * CPU power down is directly called only when HW_ASSISTED_COHERENCY is
@@ -301,6 +329,9 @@ void psci_do_pwrdown_sequence(unsigned int power_level);
  * handled in assembly.
  */
 void prepare_cpu_pwr_dwn(unsigned int power_level);
+
+/* This function applies various CPU errata during power down. */
+void apply_cpu_pwr_dwn_errata(void);
 
 /* Private exported functions from psci_on.c */
 int psci_cpu_on_start(u_register_t target_cpu,
@@ -312,12 +343,12 @@ void psci_cpu_on_finish(unsigned int cpu_idx, const psci_power_state_t *state_in
 int psci_do_cpu_off(unsigned int end_pwrlvl);
 
 /* Private exported functions from psci_suspend.c */
-void psci_cpu_suspend_start(const entry_point_info_t *ep,
-			unsigned int end_pwrlvl,
-			psci_power_state_t *state_info,
-			unsigned int is_power_down_state);
+int psci_cpu_suspend_start(unsigned int idx,
+			   unsigned int end_pwrlvl,
+			   psci_power_state_t *state_info,
+			   unsigned int is_power_down_state);
 
-void psci_cpu_suspend_finish(unsigned int cpu_idx, const psci_power_state_t *state_info);
+void psci_cpu_suspend_to_powerdown_finish(unsigned int cpu_idx, unsigned int max_off_lvl, const psci_power_state_t *state_info);
 
 /* Private exported functions from psci_helpers.S */
 void psci_do_pwrdown_cache_maintenance(unsigned int pwr_level);
@@ -329,9 +360,9 @@ void __dead2 psci_system_reset(void);
 u_register_t psci_system_reset2(uint32_t reset_type, u_register_t cookie);
 
 /* Private exported functions from psci_stat.c */
-void psci_stats_update_pwr_down(unsigned int end_pwrlvl,
+void psci_stats_update_pwr_down(unsigned int cpu_idx, unsigned int end_pwrlvl,
 			const psci_power_state_t *state_info);
-void psci_stats_update_pwr_up(unsigned int end_pwrlvl,
+void psci_stats_update_pwr_up(unsigned int cpu_idx, unsigned int end_pwrlvl,
 			const psci_power_state_t *state_info);
 u_register_t psci_stat_residency(u_register_t target_cpu,
 			unsigned int power_state);

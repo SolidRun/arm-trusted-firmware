@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2020, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2015-2025, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -46,14 +46,26 @@ void crypto_mod_init(void)
 {
 	assert(crypto_lib_desc.name != NULL);
 	assert(crypto_lib_desc.init != NULL);
+#if CRYPTO_SUPPORT == CRYPTO_AUTH_VERIFY_ONLY || \
+CRYPTO_SUPPORT == CRYPTO_AUTH_VERIFY_AND_HASH_CALC
 	assert(crypto_lib_desc.verify_signature != NULL);
 	assert(crypto_lib_desc.verify_hash != NULL);
+#endif /* CRYPTO_SUPPORT == CRYPTO_AUTH_VERIFY_ONLY || \
+	  CRYPTO_SUPPORT == CRYPTO_AUTH_VERIFY_AND_HASH_CALC */
+
+#if CRYPTO_SUPPORT == CRYPTO_HASH_CALC_ONLY || \
+CRYPTO_SUPPORT == CRYPTO_AUTH_VERIFY_AND_HASH_CALC
+	assert(crypto_lib_desc.calc_hash != NULL);
+#endif /* CRYPTO_SUPPORT == CRYPTO_HASH_CALC_ONLY || \
+	  CRYPTO_SUPPORT == CRYPTO_AUTH_VERIFY_AND_HASH_CALC */
 
 	/* Initialize the cryptographic library */
 	crypto_lib_desc.init();
 	INFO("Using crypto library '%s'\n", crypto_lib_desc.name);
 }
 
+#if CRYPTO_SUPPORT == CRYPTO_AUTH_VERIFY_ONLY || \
+CRYPTO_SUPPORT == CRYPTO_AUTH_VERIFY_AND_HASH_CALC
 /*
  * Function to verify a digital signature
  *
@@ -103,8 +115,11 @@ int crypto_mod_verify_hash(void *data_ptr, unsigned int data_len,
 	return crypto_lib_desc.verify_hash(data_ptr, data_len,
 					   digest_info_ptr, digest_info_len);
 }
+#endif /* CRYPTO_SUPPORT == CRYPTO_AUTH_VERIFY_ONLY || \
+	  CRYPTO_SUPPORT == CRYPTO_AUTH_VERIFY_AND_HASH_CALC */
 
-#if MEASURED_BOOT
+#if CRYPTO_SUPPORT == CRYPTO_HASH_CALC_ONLY || \
+CRYPTO_SUPPORT == CRYPTO_AUTH_VERIFY_AND_HASH_CALC
 /*
  * Calculate a hash
  *
@@ -114,8 +129,9 @@ int crypto_mod_verify_hash(void *data_ptr, unsigned int data_len,
  *   data_ptr, data_len: data to be hashed
  *   output: resulting hash
  */
-int crypto_mod_calc_hash(unsigned int alg, void *data_ptr,
-			 unsigned int data_len, unsigned char *output)
+int crypto_mod_calc_hash(enum crypto_md_algo alg, void *data_ptr,
+			 unsigned int data_len,
+			 unsigned char output[CRYPTO_MD_MAX_SIZE])
 {
 	assert(data_ptr != NULL);
 	assert(data_len != 0);
@@ -123,7 +139,22 @@ int crypto_mod_calc_hash(unsigned int alg, void *data_ptr,
 
 	return crypto_lib_desc.calc_hash(alg, data_ptr, data_len, output);
 }
-#endif	/* MEASURED_BOOT */
+#endif /* CRYPTO_SUPPORT == CRYPTO_HASH_CALC_ONLY || \
+	  CRYPTO_SUPPORT == CRYPTO_AUTH_VERIFY_AND_HASH_CALC */
+
+int crypto_mod_convert_pk(void *full_pk_ptr, unsigned int full_pk_len,
+			  void **hashed_pk_ptr, unsigned int *hashed_pk_len)
+{
+	if (crypto_lib_desc.convert_pk != NULL) {
+		return crypto_lib_desc.convert_pk(full_pk_ptr, full_pk_len,
+						  hashed_pk_ptr, hashed_pk_len);
+	}
+
+	*hashed_pk_ptr = full_pk_ptr;
+	*hashed_pk_len = full_pk_len;
+
+	return 0;
+}
 
 /*
  * Authenticated decryption of data
@@ -155,4 +186,13 @@ int crypto_mod_auth_decrypt(enum crypto_dec_algo dec_algo, void *data_ptr,
 	return crypto_lib_desc.auth_decrypt(dec_algo, data_ptr, len, key,
 					    key_len, key_flags, iv, iv_len, tag,
 					    tag_len);
+}
+
+/* Perform end of psa crypto usage calls to finish */
+void crypto_mod_finish(void)
+{
+	if (crypto_lib_desc.finish != NULL) {
+		crypto_lib_desc.finish();
+		INFO("Finished using crypto library '%s'\n", crypto_lib_desc.name);
+	}
 }

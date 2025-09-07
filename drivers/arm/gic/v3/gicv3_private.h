@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2015-2021, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2023, NVIDIA Corporation. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -171,7 +172,7 @@
 static inline u_register_t gicd_irouter_val_from_mpidr(u_register_t mpidr,
 						       unsigned int irm)
 {
-	return (mpidr & ~(U(0xff) << 24)) |
+	return (mpidr & MPIDR_AFFINITY_MASK) |
 		((irm & IROUTER_IRM_MASK) << IROUTER_IRM_SHIFT);
 }
 
@@ -233,6 +234,9 @@ void gicr_set_icfgr(uintptr_t base, unsigned int id, unsigned int cfg);
 /*******************************************************************************
  * Private GICv3 helper function prototypes
  ******************************************************************************/
+uintptr_t gicv3_get_multichip_base(uint32_t spi_id, uintptr_t gicd_base);
+unsigned int gicv3_get_spi_limit(uintptr_t gicd_base);
+unsigned int gicv3_get_espi_limit(uintptr_t gicd_base);
 void gicv3_spis_config_defaults(uintptr_t gicd_base);
 void gicv3_ppi_sgi_config_defaults(uintptr_t gicr_base);
 unsigned int gicv3_secure_ppi_sgi_config_props(uintptr_t gicr_base,

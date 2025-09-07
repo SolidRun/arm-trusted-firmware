@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014-2019, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2014-2024, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -66,7 +66,7 @@ static unsigned long long calc_physical_addr_size_bits(
  */
 static const unsigned int pa_range_bits_arr[] = {
 	PARANGE_0000, PARANGE_0001, PARANGE_0010, PARANGE_0011, PARANGE_0100,
-	PARANGE_0101, PARANGE_0110
+	PARANGE_0101, PARANGE_0110, PARANGE_0111
 };
 
 static unsigned long long get_max_supported_pa(void)
@@ -87,7 +87,7 @@ static uintptr_t xlat_get_min_virt_addr_space_size(void)
 {
 	uintptr_t ret;
 
-	if (is_armv8_4_ttst_present())
+	if (is_feat_ttst_present())
 		ret = MIN_VIRT_ADDR_SPACE_SIZE_TTST;
 	else
 		ret = MIN_VIRT_ADDR_SPACE_SIZE;
@@ -147,7 +147,7 @@ void init_xlat_tables(void)
  *			exception level
  ******************************************************************************/
 #define DEFINE_ENABLE_MMU_EL(_el, _tcr_extra, _tlbi_fct)		\
-	void enable_mmu_el##_el(unsigned int flags)				\
+	void enable_mmu_el##_el(unsigned int flags)			\
 	{								\
 		uint64_t mair, tcr, ttbr;				\
 		uint32_t sctlr;						\

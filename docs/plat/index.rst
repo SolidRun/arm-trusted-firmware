@@ -4,12 +4,12 @@ Platform Ports
 .. toctree::
    :maxdepth: 1
    :caption: Contents
-   :numbered:
    :hidden:
 
    allwinner
+   amd-versal2
    arm/index
-   deprecated
+   ast2700
    meson-axg
    meson-gxbb
    meson-gxl
@@ -20,26 +20,37 @@ Platform Ports
    intel-stratix10
    marvell/index
    mt8183
+   mt8186
+   mt8188
+   mt8189
    mt8192
    mt8195
+   mt8196
    nvidia-tegra
    warp7
    imx8
    imx8m
-   ls1043a
+   imx8ulp
+   imx9
+   s32g274a
+   npcm845x
+   nxp/index
    poplar
    qemu
    qemu-sbsa
    qti
+   qti-msm8916
    rpi3
    rpi4
+   rpi5
    rcar-gen3
    rz-g2
    rockchip
    socionext-uniphier
    synquacer
-   stm32mp1
+   st/index
    ti-k3
+   xilinx-versal-net
    xilinx-versal
    xilinx-zynqmp
    brcm-stingray
@@ -53,12 +64,33 @@ documentation associated with them.
    currently have associated documentation:
 
    - Arm Neoverse N1 System Development Platform (N1SDP)
-   - Arm Neoverse Reference Design N1 Edge (RD-N1-Edge) FVP
-   - Arm Neoverse Reference Design E1 Edge (RD-E1-Edge) FVP
-   - Arm SGI-575 and SGM-775
-   - MediaTek MT6795 and MT8173 SoCs
-   - Arm Morello Platform
+   - MediaTek MT8173 SoCs
+
+Deprecated platforms
+--------------------
+
++----------------+----------------+--------------------+--------------------+
+|    Platform    |     Vendor     | Deprecated version |  Deleted version   |
++================+================+====================+====================+
+|      TC2       |      Arm       |        2.12        |         2.13       |
+|                |                |                    |                    |
++----------------+----------------+--------------------+--------------------+
+|     fvp_r      |      Arm       |        2.13        |         2.13       |
+|                |                |                    |                    |
++----------------+----------------+--------------------+--------------------+
+|    SGI-575     |      Arm       |        2.13        |         2.13       |
+|                |                |                    |                    |
++----------------+----------------+--------------------+--------------------+
+|   RD-N1-Edge   |      Arm       |        2.13        |         2.13       |
+|                |                |                    |                    |
++----------------+----------------+--------------------+--------------------+
+|     RD-V1      |      Arm       |        2.13        |         2.13       |
+|                |                |                    |                    |
++----------------+----------------+--------------------+--------------------+
+|    RD-V1-MC    |      Arm       |        2.13        |         2.13       |
+|                |                |                    |                    |
++----------------+----------------+--------------------+--------------------+
 
 --------------
 
-*Copyright (c) 2019-2020, Arm Limited. All rights reserved.*
+*Copyright (c) 2019-2025, Arm Limited. All rights reserved.*

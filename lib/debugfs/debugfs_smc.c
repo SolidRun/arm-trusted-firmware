@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2019, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -54,7 +54,7 @@ static union debugfs_parms {
 } parms;
 
 /* debugfs_access_lock protects shared buffer and internal */
-/* FS functions from concurrent acccesses.                 */
+/* FS functions from concurrent accesses.                 */
 static spinlock_t debugfs_access_lock;
 
 static bool debugfs_initialized;

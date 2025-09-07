@@ -16,6 +16,12 @@ Arm Platform Build Options
    should match the frame used by the Non-Secure image (normally the Linux
    kernel). Default is true (access to the frame is allowed).
 
+-  ``ARM_FW_CONFIG_LOAD_ENABLE``: Boolean option to enable the loading of
+   FW_CONFIG device trees from the Firmware Image Package (FIP). When enabled,
+   BL2 calls the platform specific function `arm_bl2_el3_plat_config_load`.
+   This function is responsible for loading, parsing, and validating the
+   FW_CONFIG device trees from the FIP. The option depends on RESET_TO_BL2.
+
 -  ``ARM_DISABLE_TRUSTED_WDOG``: boolean option to disable the Trusted Watchdog.
    By default, Arm platforms use a watchdog to trigger a system reset in case
    an error is encountered during the boot process (for example, when an image
@@ -49,7 +55,7 @@ Arm Platform Build Options
    field of power-state parameter.
 
 -  ``ARM_ROTPK_LOCATION``: used when ``TRUSTED_BOARD_BOOT=1``. It specifies the
-   location of the ROTPK hash returned by the function ``plat_get_rotpk_info()``
+   location of the ROTPK returned by the function ``plat_get_rotpk_info()``
    for Arm platforms. Depending on the selected option, the proper private key
    must be specified using the ``ROT_KEY`` option when building the Trusted
    Firmware. This private key will be used by the certificate generation tool
@@ -59,21 +65,26 @@ Arm Platform Build Options
    -  ``regs`` : return the ROTPK hash stored in the Trusted root-key storage
       registers.
    -  ``devel_rsa`` : return a development public key hash embedded in the BL1
-      and BL2 binaries. This hash has been obtained from the RSA public key
-      ``arm_rotpk_rsa.der``, located in ``plat/arm/board/common/rotpk``. To use
-      this option, ``arm_rotprivk_rsa.pem`` must be specified as ``ROT_KEY``
-      when creating the certificates.
+      and BL2 binaries. This hash corresponds to the development private key
+      ``plat/arm/board/common/rotpk/arm_rotprivk_rsa.pem``.
+      The hashing algorithm is selected by ``HASH_ALG``; sha256 is used if
+      ``HASH_ALG`` is not specified. A different RSA key can be specified by setting
+      ``ROT_KEY``, there are 3k and 4k RSA keys in ``plat/arm/board/common/rotpk/``.
    -  ``devel_ecdsa`` : return a development public key hash embedded in the BL1
-      and BL2 binaries. This hash has been obtained from the ECDSA public key
-      ``arm_rotpk_ecdsa.der``, located in ``plat/arm/board/common/rotpk``. To
-      use this option, ``arm_rotprivk_ecdsa.pem`` must be specified as
-      ``ROT_KEY`` when creating the certificates.
-
--  ``ARM_ROTPK_HASH``: used when ``ARM_ROTPK_LOCATION=devel_*``. Specifies the
-   location of the ROTPK hash. Not expected to be a build option. This defaults to
-   ``plat/arm/board/common/rotpk/*_sha256.bin`` depending on the specified algorithm.
-   Providing ``ROT_KEY`` enforces generation of the hash from the ``ROT_KEY`` and
-   overwrites the default hash file.
+      and BL2 binaries. This hash corresponds to the development private key
+      ``plat/arm/board/common/rotpk/arm_rotprivk_ecdsa.pem`` unless a different key
+      is specified with ``ROT_KEY``, such as the 384 bit key in the same directory.
+      he hashing algorithm is selected by ``HASH_ALG``; sha256 is used if ``HASH_ALG``
+      is not specified.
+   -  ``devel_full_dev_rsa_key`` : return a development public key embedded in
+      the BL1 and BL2 binaries. This key corresponds to the RSA private
+      key ``plat/arm/board/common/rotpk/arm_rotprivk.pem`` by default, but can
+      be changed by setting ``ROT_KEY``, there are 3k and 4k RSA keys in
+      ``plat/arm/board/common/rotpk/``.
+   - ``devel_full_dev_ecdsa_key`` : return a development public key embedded in
+      the BL1 and BL2 binaries. This key corresponds to the EC private key
+      ``plat/arm/board/common/rotpk/arm_rotprivk_ecdsa.pem``, unless a different
+      ECDSA key is specified by ``ROT_KEY``, such as the 384 bit key in the same directory.
 
 -  ``ARM_TSP_RAM_LOCATION``: location of the TSP binary. Options:
 
@@ -85,24 +96,6 @@ Arm Platform Build Options
 -  ``ARM_XLAT_TABLES_LIB_V1``: boolean option to compile TF-A with version 1
    of the translation tables library instead of version 2. It is set to 0 by
    default, which selects version 2.
-
--  ``ARM_CRYPTOCELL_INTEG`` : bool option to enable TF-A to invoke Arm®
-   TrustZone® CryptoCell functionality for Trusted Board Boot on capable Arm
-   platforms. If this option is specified, then the path to the CryptoCell
-   SBROM library must be specified via ``CCSBROM_LIB_PATH`` flag.
-
--  ``ARM_ETHOSN_NPU_DRIVER``: boolean option to enable a SiP service that can
-   configure an Arm Ethos-N NPU. To use this service the target platform's
-   ``HW_CONFIG`` must include the device tree nodes for the NPU. Currently, only
-   the Arm Juno platform has this included in its ``HW_CONFIG`` and the platform
-   only loads the ``HW_CONFIG`` in AArch64 builds. Default is 0.
-
--  ``ARM_SPMC_MANIFEST_DTS`` : path to an alternate manifest file used as the
-   SPMC Core manifest. Valid when ``SPD=spmd`` is selected.
-
--  ``OPTEE_SP_FW_CONFIG``: DTC build flag to include OP-TEE as SP in tb_fw_config
-   device tree. This flag is defined only when ``ARM_SPMC_MANIFEST_DTS`` manifest
-   file name contains pattern optee_sp.
 
 -  ``ARM_GPT_SUPPORT``: Enable GPT parser to get the entry address and length of
    the various partitions present in the GPT image. This support is available
@@ -135,19 +128,43 @@ Arm CSS Platform-Specific Build Options
    management operations and for SCP RAM Firmware transfer. If this option
    is set to 1, then SCMI/SDS drivers will be used. Default is 0.
 
- - ``CSS_SGI_CHIP_COUNT``: Configures the number of chips on a SGI/RD platform
-   which supports multi-chip operation. If ``CSS_SGI_CHIP_COUNT`` is set to any
+- ``CSS_SYSTEM_GRACEFUL_RESET``: Build option to enable graceful powerdown of
+   CPU core on reset. This build option can be used on CSS platforms that
+   require all the CPUs to execute the CPU specific power down sequence to
+   complete a warm reboot sequence in which only the CPUs are power cycled.
+
+Arm FVP Build Options
+---------------------
+
+- ``FVP_TRUSTED_SRAM_SIZE``: Size (in kilobytes) of the Trusted SRAM region to
+  utilize when building for the FVP platform. This option defaults to 256 with
+  build option ENABLE_RME=0 and 384 for ENABLE_RME=1.
+
+Arm Juno Build Options
+----------------------
+
+-  ``JUNO_AARCH32_EL3_RUNTIME``: This build flag enables you to execute EL3
+   runtime software in AArch32 mode, which is required to run AArch32 on Juno.
+   By default this flag is set to '0'. Enabling this flag builds BL1 and BL2 in
+   AArch64 and facilitates the loading of ``SP_MIN`` and BL33 as AArch32 executable
+   images.
+
+Arm Neoverse RD Platform Build Options
+--------------------------------------
+
+ - ``NRD_CHIP_COUNT``: Configures the number of chips on a Neoverse RD platform
+   which supports multi-chip operation. If ``NRD_CHIP_COUNT`` is set to any
    valid value greater than 1, the platform code performs required configuration
    to support multi-chip operation.
 
-- ``CSS_SGI_PLATFORM_VARIANT``: Selects the variant of a SGI/RD platform. A
-    particular SGI/RD platform may have multiple variants which may differ in
-    core count, cluster count or other peripherals. This build option is used
-    to select the appropriate platform variant for the build. The range of
-    valid values is platform specific.
+- ``NRD_PLATFORM_VARIANT``: Selects the variant of a Neoverse RD platform. A
+  particular Neoverse RD platform may have multiple variants which may differ in
+  core count, cluster count or other peripherals. This build option is used to
+  select the appropriate platform variant for the build. The range of valid
+  values is platform specific.
 
 --------------
 
 .. |FIP in a GPT image| image:: ../../resources/diagrams/FIP_in_a_GPT_image.png
 
-*Copyright (c) 2019-2021, Arm Limited. All rights reserved.*
+*Copyright (c) 2019-2024, Arm Limited. All rights reserved.*

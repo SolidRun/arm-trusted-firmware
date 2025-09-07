@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2020, ARM Limited. All rights reserved.
+ * Copyright (c) 2019-2020, Arm Limited. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -23,9 +23,6 @@ struct tbbr_dyn_config_t {
 	uint32_t disable_auth;
 	void *mbedtls_heap_addr;
 	size_t mbedtls_heap_size;
-#if MEASURED_BOOT
-	uint8_t bl2_hash_data[TCG_DIGEST_SIZE];
-#endif
 };
 
 extern struct tbbr_dyn_config_t tbbr_dyn_config;

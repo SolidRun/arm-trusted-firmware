@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2020, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2017-2024, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -22,22 +22,16 @@
  */
 bool xlat_arch_is_granule_size_supported(size_t size)
 {
-	u_register_t id_aa64mmfr0_el1 = read_id_aa64mmfr0_el1();
-
 	if (size == PAGE_SIZE_4KB) {
-		return ((id_aa64mmfr0_el1 >> ID_AA64MMFR0_EL1_TGRAN4_SHIFT) &
-			 ID_AA64MMFR0_EL1_TGRAN4_MASK) ==
-			 ID_AA64MMFR0_EL1_TGRAN4_SUPPORTED;
+		/* MSB of TGRAN4 field will be '1' for unsupported feature */
+		return is_feat_tgran4K_present();
 	} else if (size == PAGE_SIZE_16KB) {
-		return ((id_aa64mmfr0_el1 >> ID_AA64MMFR0_EL1_TGRAN16_SHIFT) &
-			 ID_AA64MMFR0_EL1_TGRAN16_MASK) ==
-			 ID_AA64MMFR0_EL1_TGRAN16_SUPPORTED;
+		return is_feat_tgran16K_present();
 	} else if (size == PAGE_SIZE_64KB) {
-		return ((id_aa64mmfr0_el1 >> ID_AA64MMFR0_EL1_TGRAN64_SHIFT) &
-			 ID_AA64MMFR0_EL1_TGRAN64_MASK) ==
-			 ID_AA64MMFR0_EL1_TGRAN64_SUPPORTED;
+		/* MSB of TGRAN64 field will be '1' for unsupported feature */
+		return is_feat_tgran64K_present();
 	} else {
-		return 0;
+		return false;
 	}
 }
 
@@ -50,6 +44,33 @@ size_t xlat_arch_get_max_supported_granule_size(void)
 	} else {
 		assert(xlat_arch_is_granule_size_supported(PAGE_SIZE_4KB));
 		return PAGE_SIZE_4KB;
+	}
+}
+
+/*
+ * Determine the physical address space encoded in the 'attr' parameter.
+ *
+ * The physical address will fall into one of four spaces; secure,
+ * nonsecure, root, or realm if RME is enabled, or one of two spaces;
+ * secure and nonsecure otherwise.
+ */
+uint32_t xlat_arch_get_pas(uint32_t attr)
+{
+	uint32_t pas = MT_PAS(attr);
+
+	switch (pas) {
+#if ENABLE_RME
+	/* TTD.NSE = 1 and TTD.NS = 1 for Realm PAS */
+	case MT_REALM:
+		return LOWER_ATTRS(EL3_S1_NSE | NS);
+	/* TTD.NSE = 1 and TTD.NS = 0 for Root PAS */
+	case MT_ROOT:
+		return LOWER_ATTRS(EL3_S1_NSE);
+#endif
+	case MT_NS:
+		return LOWER_ATTRS(NS);
+	default: /* MT_SECURE */
+		return 0U;
 	}
 }
 
@@ -88,7 +109,7 @@ unsigned long long tcr_physical_addr_size_bits(unsigned long long max_addr)
  */
 static const unsigned int pa_range_bits_arr[] = {
 	PARANGE_0000, PARANGE_0001, PARANGE_0010, PARANGE_0011, PARANGE_0100,
-	PARANGE_0101, PARANGE_0110
+	PARANGE_0101, PARANGE_0110, PARANGE_0111
 };
 
 unsigned long long xlat_arch_get_max_supported_pa(void)
@@ -109,7 +130,7 @@ uintptr_t xlat_get_min_virt_addr_space_size(void)
 {
 	uintptr_t ret;
 
-	if (is_armv8_4_ttst_present())
+	if (is_feat_ttst_present())
 		ret = MIN_VIRT_ADDR_SPACE_SIZE_TTST;
 	else
 		ret = MIN_VIRT_ADDR_SPACE_SIZE;
@@ -286,7 +307,7 @@ void setup_mmu_cfg(uint64_t *params, unsigned int flags,
 	/* Set TTBR bits as well */
 	ttbr0 = (uint64_t) base_table;
 
-	if (is_armv8_2_ttcnp_present()) {
+	if (is_feat_ttcnp_present()) {
 		/* Enable CnP bit so as to share page tables with all PEs. */
 		ttbr0 |= TTBR_CNP_BIT;
 	}

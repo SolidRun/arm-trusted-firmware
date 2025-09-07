@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2020, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2013-2021, ARM Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -66,17 +66,6 @@ func bl31_entrypoint
 		_init_c_runtime=1				\
 		_exception_vectors=runtime_exceptions		\
 		_pie_fixup_size=BL31_LIMIT - BL31_BASE
-
-	/* ---------------------------------------------------------------------
-	 * For RESET_TO_BL31 systems, BL31 is the first bootloader to run so
-	 * there's no argument to relay from a previous bootloader. Zero the
-	 * arguments passed to the platform layer to reflect that.
-	 * ---------------------------------------------------------------------
-	 */
-	mov	x20, 0
-	mov	x21, 0
-	mov	x22, 0
-	mov	x23, 0
 #endif /* RESET_TO_BL31 */
 
 	/* --------------------------------------------------------------------
@@ -194,6 +183,19 @@ func bl31_warm_entrypoint
 	mov	x0, #DISABLE_DCACHE
 #endif
 	bl	bl31_plat_enable_mmu
+
+#if ENABLE_RME
+	/*
+	 * At warm boot GPT data structures have already been initialized in RAM
+	 * but the sysregs for this CPU need to be initialized. Note that the GPT
+	 * accesses are controlled attributes in GPCCR and do not depend on the
+	 * SCR_EL3.C bit.
+	 */
+	bl	gpt_enable
+	cbz	x0, 1f
+	no_ret plat_panic_handler
+1:
+#endif
 
 #if ENABLE_PAUTH
 	/* --------------------------------------------------------------------

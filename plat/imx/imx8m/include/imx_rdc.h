@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019, NXP. All rights reserved.
+ * Copyright (c) 2019-2022 NXP. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -9,6 +9,7 @@
 
 #include <lib/utils_def.h>
 
+#include <imx_sec_def.h>
 #include <platform_def.h>
 
 #define MDAn(x)		(IMX_RDC_BASE + 0x200 + (x) * 4)
@@ -66,7 +67,7 @@ struct imx_rdc_cfg {
 	  .setting.rdc_mem_region[2] = (mrc),	\
 	}
 
-void imx_rdc_init(const struct imx_rdc_cfg *cfg);
+void imx_rdc_init(struct imx_rdc_cfg *cfg, unsigned int console_base);
 
 #endif /* IMX_RDC_H */
 

@@ -33,4 +33,12 @@
 #define SUNXI_R_CPUCFG_SS_ENTRY_REG	(SUNXI_R_CPUCFG_BASE + 0x01a8)
 #define SUNXI_R_CPUCFG_HP_FLAG_REG	(SUNXI_R_CPUCFG_BASE + 0x01ac)
 
+#define SUNXI_AA64nAA32_REG		SUNXI_CPUCFG_CLS_CTRL_REG0
+#define SUNXI_AA64nAA32_OFFSET		24
+
+static inline bool sunxi_cpucfg_has_per_cluster_regs(void)
+{
+	return true;
+}
+
 #endif /* SUNXI_CPUCFG_H */

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2018, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2015-2024, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -20,6 +20,22 @@
 #ifdef RPI_HAVE_GIC
 #include <drivers/arm/gicv2.h>
 #endif
+
+/* Registers on top of RPI3_PM_BASE. */
+#define RPI3_PM_RSTC_OFFSET		ULL(0x0000001C)
+#define RPI3_PM_RSTS_OFFSET		ULL(0x00000020)
+#define RPI3_PM_WDOG_OFFSET		ULL(0x00000024)
+/* Watchdog constants */
+#define RPI3_PM_PASSWORD		U(0x5A000000)
+#define RPI3_PM_RSTC_WRCFG_MASK		U(0x00000030)
+#define RPI3_PM_RSTC_WRCFG_FULL_RESET	U(0x00000020)
+/*
+ * The RSTS register is used by the VideoCore firmware when booting the
+ * Raspberry Pi to know which partition to boot from. The partition value is
+ * formed by bits 0, 2, 4, 6, 8 and 10. Partition 63 is used by said firmware
+ * to indicate halt.
+ */
+#define RPI3_PM_RSTS_WRCFG_HALT		U(0x00000555)
 
 /* Make composite power state parameter till power level 0 */
 #if PSCI_EXTENDED_STATE_ID
@@ -123,15 +139,6 @@ static void rpi3_pwr_domain_off(const psci_power_state_t *target_state)
 #endif
 }
 
-void __dead2 plat_secondary_cold_boot_setup(void);
-
-static void __dead2
-rpi3_pwr_domain_pwr_down_wfi(const psci_power_state_t *target_state)
-{
-	disable_mmu_el3();
-	plat_secondary_cold_boot_setup();
-}
-
 /*******************************************************************************
  * Platform handler called when a power domain is about to be turned on. The
  * mpidr determines the CPU to be turned on.
@@ -196,8 +203,9 @@ static void __dead2 rpi3_pwr_down_wfi(
 
 	write_rmr_el3(RMR_EL3_RR_BIT | RMR_EL3_AA64_BIT);
 
-	while (1)
-		;
+	while (1) {
+		wfi();
+	}
 }
 
 /*******************************************************************************
@@ -262,10 +270,9 @@ static void __dead2 rpi3_system_off(void)
 static const plat_psci_ops_t plat_rpi3_psci_pm_ops = {
 	.cpu_standby = rpi3_cpu_standby,
 	.pwr_domain_off = rpi3_pwr_domain_off,
-	.pwr_domain_pwr_down_wfi = rpi3_pwr_domain_pwr_down_wfi,
 	.pwr_domain_on = rpi3_pwr_domain_on,
 	.pwr_domain_on_finish = rpi3_pwr_domain_on_finish,
-	.pwr_domain_pwr_down_wfi = rpi3_pwr_down_wfi,
+	.pwr_domain_pwr_down = rpi3_pwr_down_wfi,
 	.system_off = rpi3_system_off,
 	.system_reset = rpi3_system_reset,
 	.validate_power_state = rpi3_validate_power_state,

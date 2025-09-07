@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2019,2021, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2016-2024, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -22,9 +22,11 @@ DEFINE_SVC_UUID2(arm_sip_svc_uid,
 
 static int arm_sip_setup(void)
 {
+#if ENABLE_PMF
 	if (pmf_setup() != 0) {
 		return 1;
 	}
+#endif /* ENABLE_PMF */
 
 #if USE_DEBUGFS
 
@@ -33,6 +35,14 @@ static int arm_sip_setup(void)
 	}
 
 #endif /* USE_DEBUGFS */
+
+#if ETHOSN_NPU_DRIVER
+
+	if (ethosn_smc_setup() != 0) {
+		return 1;
+	}
+
+#endif /* ETHOSN_NPU_DRIVER */
 
 	return 0;
 }
@@ -52,12 +62,13 @@ static uintptr_t arm_sip_handler(unsigned int smc_fid,
 	int call_count = 0;
 
 #if ENABLE_PMF
-
 	/*
 	 * Dispatch PMF calls to PMF SMC handler and return its return
 	 * value
 	 */
-	if (is_pmf_fid(smc_fid)) {
+	if (is_pmf_fid_deprecated(smc_fid)) {
+		NOTICE("PMF Interface usage from arm-sip range is deprecated. \
+			Please migrate smc call to Vendor-specific el3 range.\n");
 		return pmf_smc_handler(smc_fid, x1, x2, x3, x4, cookie,
 				handle, flags);
 	}
@@ -65,22 +76,23 @@ static uintptr_t arm_sip_handler(unsigned int smc_fid,
 #endif /* ENABLE_PMF */
 
 #if USE_DEBUGFS
-
-	if (is_debugfs_fid(smc_fid)) {
+	if (is_debugfs_fid_deprecated(smc_fid)) {
+		NOTICE("Debugfs Interface usage from arm-sip range is deprecated. \
+			Please migrate smc call to vendor-specific el3 range.\n");
 		return debugfs_smc_handler(smc_fid, x1, x2, x3, x4, cookie,
 					   handle, flags);
 	}
 
 #endif /* USE_DEBUGFS */
 
-#if ARM_ETHOSN_NPU_DRIVER
+#if ETHOSN_NPU_DRIVER
 
 	if (is_ethosn_fid(smc_fid)) {
 		return ethosn_smc_handler(smc_fid, x1, x2, x3, x4, cookie,
 					  handle, flags);
 	}
 
-#endif /* ARM_ETHOSN_NPU_DRIVER */
+#endif /* ETHOSN_NPU_DRIVER */
 
 	switch (smc_fid) {
 	case ARM_SIP_SVC_EXE_STATE_SWITCH: {
@@ -106,10 +118,10 @@ static uintptr_t arm_sip_handler(unsigned int smc_fid,
 		/* PMF calls */
 		call_count += PMF_NUM_SMC_CALLS;
 
-#if ARM_ETHOSN_NPU_DRIVER
+#if ETHOSN_NPU_DRIVER
 		/* ETHOSN calls */
 		call_count += ETHOSN_NUM_SMC_CALLS;
-#endif /* ARM_ETHOSN_NPU_DRIVER */
+#endif          /* ETHOSN_NPU_DRIVER */
 
 		/* State switch call */
 		call_count += 1;
@@ -125,10 +137,16 @@ static uintptr_t arm_sip_handler(unsigned int smc_fid,
 		SMC_RET2(handle, ARM_SIP_SVC_VERSION_MAJOR, ARM_SIP_SVC_VERSION_MINOR);
 
 	default:
-		WARN("Unimplemented ARM SiP Service Call: 0x%x \n", smc_fid);
-		SMC_RET1(handle, SMC_UNK);
+		break;
 	}
 
+	/*
+	 * Fall back to allow Arm platform specific handler.
+	 * TODO: Refactor needed to move out generic handlers from this file and
+	 * only keep Arm Platform specific handlers here.
+	 */
+	return plat_arm_sip_handler(smc_fid, x1, x2, x3, x4,
+					cookie, handle, flags);
 }
 
 

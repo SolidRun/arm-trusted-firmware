@@ -145,3 +145,4 @@ Properties binding information
   :maxdepth: 1
 
   fconf_properties
+  tb_fw_bindings

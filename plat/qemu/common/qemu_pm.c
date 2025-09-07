@@ -102,22 +102,6 @@ static int qemu_validate_power_state(unsigned int power_state,
 }
 
 /*******************************************************************************
- * Platform handler called to check the validity of the non secure
- * entrypoint.
- ******************************************************************************/
-static int qemu_validate_ns_entrypoint(uintptr_t entrypoint)
-{
-	/*
-	 * Check if the non secure entrypoint lies within the non
-	 * secure DRAM.
-	 */
-	if ((entrypoint >= NS_DRAM0_BASE) &&
-	    (entrypoint < (NS_DRAM0_BASE + NS_DRAM0_SIZE)))
-		return PSCI_E_SUCCESS;
-	return PSCI_E_INVALID_ADDRESS;
-}
-
-/*******************************************************************************
  * Platform handler called when a CPU is about to enter standby.
  ******************************************************************************/
 static void qemu_cpu_standby(plat_local_state_t cpu_state)
@@ -208,8 +192,8 @@ static void __dead2 qemu_system_off(void)
 #ifdef SECURE_GPIO_BASE
 	ERROR("QEMU System Power off: with GPIO.\n");
 	gpio_set_direction(SECURE_GPIO_POWEROFF, GPIO_DIR_OUT);
-	gpio_set_value(SECURE_GPIO_POWEROFF, GPIO_LEVEL_HIGH);
 	gpio_set_value(SECURE_GPIO_POWEROFF, GPIO_LEVEL_LOW);
+	gpio_set_value(SECURE_GPIO_POWEROFF, GPIO_LEVEL_HIGH);
 #else
 	semihosting_exit(ADP_STOPPED_APPLICATION_EXIT, 0);
 	ERROR("QEMU System Off: semihosting call unexpectedly returned.\n");
@@ -222,8 +206,8 @@ static void __dead2 qemu_system_reset(void)
 	ERROR("QEMU System Reset: with GPIO.\n");
 #ifdef SECURE_GPIO_BASE
 	gpio_set_direction(SECURE_GPIO_RESET, GPIO_DIR_OUT);
-	gpio_set_value(SECURE_GPIO_RESET, GPIO_LEVEL_HIGH);
 	gpio_set_value(SECURE_GPIO_RESET, GPIO_LEVEL_LOW);
+	gpio_set_value(SECURE_GPIO_RESET, GPIO_LEVEL_HIGH);
 #else
 	ERROR("QEMU System Reset: operation not handled.\n");
 #endif
@@ -234,14 +218,13 @@ static const plat_psci_ops_t plat_qemu_psci_pm_ops = {
 	.cpu_standby = qemu_cpu_standby,
 	.pwr_domain_on = qemu_pwr_domain_on,
 	.pwr_domain_off = qemu_pwr_domain_off,
-	.pwr_domain_pwr_down_wfi = qemu_pwr_domain_pwr_down_wfi,
+	.pwr_domain_pwr_down = qemu_pwr_domain_pwr_down_wfi,
 	.pwr_domain_suspend = qemu_pwr_domain_suspend,
 	.pwr_domain_on_finish = qemu_pwr_domain_on_finish,
 	.pwr_domain_suspend_finish = qemu_pwr_domain_suspend_finish,
 	.system_off = qemu_system_off,
 	.system_reset = qemu_system_reset,
 	.validate_power_state = qemu_validate_power_state,
-	.validate_ns_entrypoint = qemu_validate_ns_entrypoint
 };
 
 int plat_setup_psci_ops(uintptr_t sec_entrypoint,

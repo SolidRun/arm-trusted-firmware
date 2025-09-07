@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2020, ARM Limited. All rights reserved.
+ * Copyright (c) 2019-2024, ARM Limited. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -8,16 +8,15 @@
 #include <stdint.h>
 #include <string.h>
 
-#include <drivers/arm/cryptocell/cc_rotpk.h>
 #include <plat/arm/common/plat_arm.h>
 #include <plat/common/common_def.h>
 #include <plat/common/platform.h>
 
 #if (ARM_ROTPK_LOCATION_ID == ARM_ROTPK_REGS_ID)
 
-static unsigned char rotpk_hash_der[ARM_ROTPK_HEADER_LEN + ARM_ROTPK_HASH_LEN];
+static unsigned char rotpk_hash_der[ARM_ROTPK_HASH_DER_HEADER_LEN + ARM_ROTPK_HASH_LEN];
 
-extern unsigned char arm_rotpk_header[];
+extern unsigned char arm_rotpk_hash_der_header[];
 
 /*
  * Return the ROTPK hash stored in the registers of Juno board.
@@ -34,8 +33,8 @@ static int juno_get_rotpk_info_regs(void **key_ptr, unsigned int *key_len,
 	assert(flags != NULL);
 
 	/* Copy the DER header */
-	memcpy(rotpk_hash_der, arm_rotpk_header, ARM_ROTPK_HEADER_LEN);
-	dst = (uint8_t *)&rotpk_hash_der[ARM_ROTPK_HEADER_LEN];
+	memcpy(rotpk_hash_der, arm_rotpk_hash_der_header, ARM_ROTPK_HASH_DER_HEADER_LEN);
+	dst = (uint8_t *)&rotpk_hash_der[ARM_ROTPK_HASH_DER_HEADER_LEN];
 
 
 	/*
@@ -109,10 +108,6 @@ static int juno_get_rotpk_info_regs(void **key_ptr, unsigned int *key_len,
 int plat_get_rotpk_info(void *cookie, void **key_ptr, unsigned int *key_len,
 			unsigned int *flags)
 {
-#if ARM_CRYPTOCELL_INTEG
-	return arm_get_rotpk_info_cc(key_ptr, key_len, flags);
-#else
-
 #if (ARM_ROTPK_LOCATION_ID == ARM_ROTPK_DEVEL_RSA_ID) || \
     (ARM_ROTPK_LOCATION_ID == ARM_ROTPK_DEVEL_ECDSA_ID)
 	return arm_get_rotpk_info_dev(key_ptr, key_len, flags);
@@ -121,6 +116,4 @@ int plat_get_rotpk_info(void *cookie, void **key_ptr, unsigned int *key_len,
 #else
 	return 1;
 #endif
-
-#endif /* ARM_CRYPTOCELL_INTEG */
 }

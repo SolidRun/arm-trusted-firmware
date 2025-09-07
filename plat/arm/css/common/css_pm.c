@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2020, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2015-2025, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -9,10 +9,15 @@
 #include <platform_def.h>
 
 #include <arch_helpers.h>
+#include <bl31/interrupt_mgmt.h>
 #include <common/debug.h>
 #include <drivers/arm/css/css_scp.h>
+#include <drivers/arm/css/dsu.h>
 #include <lib/cassert.h>
 #include <plat/arm/common/plat_arm.h>
+
+#include <plat/common/platform.h>
+
 #include <plat/arm/css/common/css_pm.h>
 
 /* Allow CSS platforms to override `plat_arm_psci_pm_ops` */
@@ -78,8 +83,12 @@ static void css_pwr_domain_on_finisher_common(
 	 * Perform the common cluster specific operations i.e enable coherency
 	 * if this cluster was off.
 	 */
-	if (CSS_CLUSTER_PWR_STATE(target_state) == ARM_LOCAL_STATE_OFF)
+	if (CSS_CLUSTER_PWR_STATE(target_state) == ARM_LOCAL_STATE_OFF) {
+#if PRESERVE_DSU_PMU_REGS
+		cluster_on_dsu_pmu_context_restore();
+#endif
 		plat_arm_interconnect_enter_coherency();
+	}
 }
 
 /*******************************************************************************
@@ -105,11 +114,8 @@ void css_pwr_domain_on_finish(const psci_power_state_t *target_state)
  ******************************************************************************/
 void css_pwr_domain_on_finish_late(const psci_power_state_t *target_state)
 {
-	/* Program the gic per-cpu distributor or re-distributor interface */
-	plat_arm_gic_pcpu_init();
-
-	/* Enable the gic cpu interface */
-	plat_arm_gic_cpuif_enable();
+	/* Setup the CPU power down request interrupt for secondary core(s) */
+	css_setup_cpu_pwr_down_intr();
 }
 
 /*******************************************************************************
@@ -120,34 +126,12 @@ void css_pwr_domain_on_finish_late(const psci_power_state_t *target_state)
  ******************************************************************************/
 static void css_power_down_common(const psci_power_state_t *target_state)
 {
-	/* Prevent interrupts from spuriously waking up this cpu */
-	plat_arm_gic_cpuif_disable();
-
-	/* Turn redistributor off */
-	plat_arm_gic_redistif_off();
-
 	/* Cluster is to be turned off, so disable coherency */
 	if (CSS_CLUSTER_PWR_STATE(target_state) == ARM_LOCAL_STATE_OFF) {
-		plat_arm_interconnect_exit_coherency();
-
-#if HW_ASSISTED_COHERENCY
-		uint32_t reg;
-
-		/*
-		 * If we have determined this core to be the last man standing and we
-		 * intend to power down the cluster proactively, we provide a hint to
-		 * the power controller that cluster power is not required when all
-		 * cores are powered down.
-		 * Note that this is only an advisory to power controller and is supported
-		 * by SoCs with DynamIQ Shared Units only.
-		 */
-		reg = read_clusterpwrdn();
-
-		/* Clear and set bit 0 : Cluster power not required */
-		reg &= ~DSU_CLUSTER_PWR_MASK;
-		reg |= DSU_CLUSTER_PWR_OFF;
-		write_clusterpwrdn(reg);
+#if PRESERVE_DSU_PMU_REGS
+		cluster_off_dsu_pmu_context_save();
 #endif
+		plat_arm_interconnect_exit_coherency();
 	}
 }
 
@@ -184,7 +168,7 @@ void css_pwr_domain_suspend(const psci_power_state_t *target_state)
 		arm_system_pwr_domain_save();
 
 		/* Power off the Redistributor after having saved its context */
-		plat_arm_gic_redistif_off();
+		gic_pcpu_off(plat_my_core_pos());
 	}
 
 	css_scp_suspend(target_state);
@@ -214,20 +198,17 @@ void css_pwr_domain_suspend_finish(
 		arm_system_pwr_domain_resume();
 
 	css_pwr_domain_on_finisher_common(target_state);
-
-	/* Enable the gic cpu interface */
-	plat_arm_gic_cpuif_enable();
 }
 
 /*******************************************************************************
  * Handlers to shutdown/reboot the system
  ******************************************************************************/
-void __dead2 css_system_off(void)
+void css_system_off(void)
 {
 	css_scp_sys_shutdown();
 }
 
-void __dead2 css_system_reset(void)
+void css_system_reset(void)
 {
 	css_scp_sys_reboot();
 }
@@ -329,6 +310,52 @@ static int css_translate_power_state_by_mpidr(u_register_t mpidr,
 		psci_power_state_t *output_state)
 {
 	return arm_validate_power_state(power_state, output_state);
+}
+
+/*
+ * Setup the SGI interrupt that will be used trigger the execution of power
+ * down sequence for all the secondary cores. This interrupt is setup to be
+ * handled in EL3 context at a priority defined by the platform.
+ */
+void css_setup_cpu_pwr_down_intr(void)
+{
+#if CSS_SYSTEM_GRACEFUL_RESET
+	plat_ic_set_interrupt_type(CSS_CPU_PWR_DOWN_REQ_INTR, INTR_TYPE_EL3);
+	plat_ic_set_interrupt_priority(CSS_CPU_PWR_DOWN_REQ_INTR,
+			PLAT_REBOOT_PRI);
+	plat_ic_enable_interrupt(CSS_CPU_PWR_DOWN_REQ_INTR);
+#endif
+}
+
+/*
+ * For a graceful shutdown/reboot, each CPU in the system should do their power
+ * down sequence. On a PSCI shutdown/reboot request, only one CPU gets an
+ * opportunity to do the powerdown sequence. To achieve graceful reset, of all
+ * cores in the system, the CPU gets the opportunity raise warm reboot SGI to
+ * rest of the CPUs which are online. Add handler for the reboot SGI where the
+ * rest of the CPU execute the powerdown sequence.
+ */
+int css_reboot_interrupt_handler(uint32_t intr_raw, uint32_t flags,
+		void *handle, void *cookie)
+{
+	unsigned int core_pos = plat_my_core_pos();
+
+	assert(intr_raw == CSS_CPU_PWR_DOWN_REQ_INTR);
+
+	/* Deactivate warm reboot SGI */
+	plat_ic_end_of_interrupt(CSS_CPU_PWR_DOWN_REQ_INTR);
+
+	/*
+	 * Disable GIC CPU interface to prevent pending interrupt from waking
+	 * up the AP from WFI.
+	 */
+	gic_cpuif_disable(core_pos);
+	gic_pcpu_off(core_pos);
+
+	psci_pwrdown_cpu_start(PLAT_MAX_PWR_LVL);
+
+	psci_pwrdown_cpu_end_terminal();
+	return 0;
 }
 
 /*******************************************************************************

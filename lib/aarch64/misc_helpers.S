@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2021, Arm Limited and Contributors. All rights reserved.
+ * Copyright (c) 2013-2024, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -21,10 +21,6 @@
 	.globl	disable_mmu_icache_el1
 	.globl	disable_mmu_icache_el3
 	.globl	fixup_gdt_reloc
-#if SUPPORT_VFP
-	.globl	enable_vfp
-#endif
-
 func smc
 	smc	#0
 endfunc smc
@@ -162,7 +158,8 @@ func zeromem_dczva
 	 * Check for M bit (MMU enabled) of the current SCTLR_EL(1|3)
 	 * register value and panic if the MMU is disabled.
 	 */
-#if defined(IMAGE_BL1) || defined(IMAGE_BL31) || (defined(IMAGE_BL2) && BL2_AT_EL3)
+#if defined(IMAGE_BL1) || defined(IMAGE_BL31) || (defined(IMAGE_BL2) && \
+	BL2_RUNS_AT_EL3)
 	mrs	tmp1, sctlr_el3
 #else
 	mrs	tmp1, sctlr_el1
@@ -455,24 +452,6 @@ func disable_mmu_icache_el1
 endfunc disable_mmu_icache_el1
 
 /* ---------------------------------------------------------------------------
- * Enable the use of VFP at EL3
- * ---------------------------------------------------------------------------
- */
-#if SUPPORT_VFP
-func enable_vfp
-	mrs	x0, cpacr_el1
-	orr	x0, x0, #CPACR_VFP_BITS
-	msr	cpacr_el1, x0
-	mrs	x0, cptr_el3
-	mov	x1, #AARCH64_CPTR_TFP
-	bic	x0, x0, x1
-	msr	cptr_el3, x0
-	isb
-	ret
-endfunc enable_vfp
-#endif
-
-/* ---------------------------------------------------------------------------
  * Helper to fixup Global Descriptor table (GDT) and dynamic relocations
  * (.rela.dyn) at runtime.
  *
@@ -530,9 +509,9 @@ func fixup_gdt_reloc
 	cmp	x3, x6
 	b.lo	2f
 
-	/* Skip adding offset if address is >= upper limit */
+	/* Skip adding offset if address is > upper limit */
 	cmp	x3, x7
-	b.hs	2f
+	b.hi	2f
 	add	x3, x3, x0
 	str	x3, [x1]
 
@@ -580,9 +559,9 @@ func fixup_gdt_reloc
 	cmp	x4, x6
 	b.lo	2f
 
-	/* Skip adding offset if r_addend entry is >= upper limit */
+	/* Skip adding offset if r_addend entry is > upper limit */
 	cmp	x4, x7
-	b.hs	2f
+	b.hi	2f
 
 	add	x4, x0, x4	/* Diff(S) + r_addend */
 	str	x4, [x3]

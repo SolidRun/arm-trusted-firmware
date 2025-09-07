@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2020, STMicroelectronics - All Rights Reserved
+ * Copyright (C) 2018-2024, STMicroelectronics - All Rights Reserved
  *
  * SPDX-License-Identifier: GPL-2.0+ OR BSD-3-Clause
  */
@@ -9,16 +9,12 @@
 #include <stdint.h>
 #include <stdio.h>
 
-#include <libfdt.h>
-
-#include <platform_def.h>
-
 #include <arch.h>
 #include <arch_helpers.h>
 #include <common/debug.h>
 #include <common/fdt_wrappers.h>
+#include <drivers/clk.h>
 #include <drivers/delay_timer.h>
-#include <drivers/generic_delay_timer.h>
 #include <drivers/st/stm32mp_clkfunc.h>
 #include <drivers/st/stm32mp1_clk.h>
 #include <drivers/st/stm32mp1_rcc.h>
@@ -26,7 +22,75 @@
 #include <lib/mmio.h>
 #include <lib/spinlock.h>
 #include <lib/utils_def.h>
+#include <libfdt.h>
 #include <plat/common/platform.h>
+
+#include <platform_def.h>
+
+enum stm32mp1_pllcfg {
+	PLLCFG_M,
+	PLLCFG_N,
+	PLL_DIV_MN_NB,
+	PLLCFG_P = PLL_DIV_MN_NB,
+	PLLCFG_Q,
+	PLLCFG_R,
+	PLLCFG_O,
+	PLLCFG_NB
+};
+
+#define PLL_DIV_MN_NB	2
+#define PLL_DIV_PQR_NB	3
+
+enum stm32mp1_pllcsg {
+	PLLCSG_MOD_PER,
+	PLLCSG_INC_STEP,
+	PLLCSG_SSCG_MODE,
+	PLLCSG_NB
+};
+
+struct stm32_pll_dt_cfg {
+	bool status;
+	uint32_t src;
+	uint32_t cfg[PLLCFG_NB];
+	uint32_t frac;
+	bool csg_enabled;
+	uint32_t csg[PLLCSG_NB];
+};
+
+struct stm32_clk_platdata {
+	uint32_t npll;
+	struct stm32_pll_dt_cfg *pll;
+	uint32_t nclksrc;
+	uint32_t *clksrc;
+	uint32_t nclkdiv;
+	uint32_t *clkdiv;
+	bool lse_css;
+};
+
+struct stm32_clk_priv {
+	uintptr_t base;
+	const struct mux_cfg *parents;
+	const uint32_t nb_parents;
+	const struct div_cfg *div;
+	const uint32_t nb_div;
+	void *pdata;
+};
+
+static struct stm32_clk_priv *stm32_clock_data;
+
+static struct stm32_clk_priv *clk_stm32_get_priv(void)
+{
+	return stm32_clock_data;
+}
+
+static int clk_stm32_init(struct stm32_clk_priv *priv, uintptr_t base)
+{
+	stm32_clock_data = priv;
+
+	priv->base = base;
+
+	return 0;
+}
 
 #define MAX_HSI_HZ		64000000
 #define USB_PHY_48_MHZ		48000000
@@ -39,6 +103,199 @@
 #define CLKDIV_TIMEOUT		TIMEOUT_US_200MS
 #define HSIDIV_TIMEOUT		TIMEOUT_US_200MS
 #define OSCRDY_TIMEOUT		TIMEOUT_US_1S
+
+struct mux_cfg {
+	uint16_t offset;
+	uint8_t shift;
+	uint8_t width;
+	uint8_t bitrdy;
+};
+
+struct div_cfg {
+	uint16_t offset;
+	uint8_t shift;
+	uint8_t width;
+	uint8_t bitrdy;
+};
+
+#define DIV_NO_BIT_RDY UINT8_MAX
+
+#define DIV_CFG(_id, _offset, _shift, _width,  _bitrdy)\
+	[(_id)] = {\
+		.offset	= (_offset),\
+		.shift	= (_shift),\
+		.width	= (_width),\
+		.bitrdy	= (_bitrdy),\
+	}
+
+static const struct div_cfg dividers_mp15[] = {
+	DIV_CFG(DIV_MPU, RCC_MPCKDIVR, 0, 4, 31),
+	DIV_CFG(DIV_AXI, RCC_AXIDIVR, 0, 3, 31),
+	DIV_CFG(DIV_MCU, RCC_MCUDIVR, 0, 4, 31),
+	DIV_CFG(DIV_APB1, RCC_APB1DIVR, 0, 3, 31),
+	DIV_CFG(DIV_APB2, RCC_APB2DIVR, 0, 3, 31),
+	DIV_CFG(DIV_APB3, RCC_APB3DIVR, 0, 3, 31),
+	DIV_CFG(DIV_APB4, RCC_APB4DIVR, 0, 3, 31),
+	DIV_CFG(DIV_APB5, RCC_APB5DIVR, 0, 3, 31),
+	DIV_CFG(DIV_RTC, RCC_RTCDIVR, 0, 6, DIV_NO_BIT_RDY),
+	DIV_CFG(DIV_MCO1, RCC_MCO1CFGR, 4, 4, DIV_NO_BIT_RDY),
+	DIV_CFG(DIV_MCO2, RCC_MCO2CFGR, 4, 4, DIV_NO_BIT_RDY),
+	DIV_CFG(DIV_TRACE, RCC_DBGCFGR, 0, 3, DIV_NO_BIT_RDY),
+	DIV_CFG(DIV_ETHPTP, RCC_ETHCKSELR, 4, 4, DIV_NO_BIT_RDY),
+};
+
+/*
+ * MUX CONFIG
+ */
+
+#define MUX_NO_BIT_RDY		UINT8_MAX
+
+#define MUXRDY_CFG(_id, _offset, _shift, _width,  _bitrdy)\
+	[(_id)] = {\
+		.offset	= (_offset),\
+		.shift	= (_shift),\
+		.width	= (_width),\
+		.bitrdy = (_bitrdy),\
+	}
+
+#define MUX_CFG(_id, _offset, _shift, _width)\
+	MUXRDY_CFG(_id, _offset, _shift, _width,  MUX_NO_BIT_RDY)
+
+static const struct mux_cfg parent_mp15[MUX_NB] = {
+	MUX_CFG(MUX_PLL12,	RCC_RCK12SELR, 0, 2),
+	MUX_CFG(MUX_PLL3,	RCC_RCK3SELR, 0, 2),
+	MUX_CFG(MUX_PLL4,	RCC_RCK4SELR, 0, 2),
+	MUX_CFG(MUX_CKPER,	RCC_CPERCKSELR, 0, 2),
+	MUXRDY_CFG(MUX_MPU,	RCC_MPCKSELR, 0, 2, 31),
+	MUXRDY_CFG(MUX_AXI,	RCC_ASSCKSELR, 0, 3, 31),
+	MUXRDY_CFG(MUX_MCU,	RCC_MSSCKSELR, 0, 2, 31),
+	MUX_CFG(MUX_RTC,	RCC_BDCR, 16, 2),
+	MUX_CFG(MUX_SDMMC12,	RCC_SDMMC12CKSELR, 0, 3),
+	MUX_CFG(MUX_SPI2S23,	RCC_SPI2S23CKSELR, 0, 3),
+	MUX_CFG(MUX_SPI45,	RCC_SPI45CKSELR, 0, 3),
+	MUX_CFG(MUX_I2C12,	RCC_I2C12CKSELR, 0, 3),
+	MUX_CFG(MUX_I2C35,	RCC_I2C35CKSELR, 0, 3),
+	MUX_CFG(MUX_LPTIM23,	RCC_LPTIM23CKSELR, 0, 3),
+	MUX_CFG(MUX_LPTIM45,	RCC_LPTIM45CKSELR, 0, 3),
+	MUX_CFG(MUX_UART24,	RCC_UART24CKSELR, 0, 3),
+	MUX_CFG(MUX_UART35,	RCC_UART35CKSELR, 0, 3),
+	MUX_CFG(MUX_UART78,	RCC_UART78CKSELR, 0, 3),
+	MUX_CFG(MUX_SAI1,	RCC_SAI1CKSELR, 0, 3),
+	MUX_CFG(MUX_ETH,	RCC_ETHCKSELR, 0, 2),
+	MUX_CFG(MUX_I2C46,	RCC_I2C46CKSELR, 0, 3),
+	MUX_CFG(MUX_RNG2,	RCC_RNG2CKSELR, 0, 2),
+	MUX_CFG(MUX_SDMMC3,	RCC_SDMMC3CKSELR, 0, 3),
+	MUX_CFG(MUX_FMC,	RCC_FMCCKSELR, 0, 2),
+	MUX_CFG(MUX_QSPI,	RCC_QSPICKSELR, 0, 2),
+	MUX_CFG(MUX_USBPHY,	RCC_USBCKSELR, 0, 2),
+	MUX_CFG(MUX_USBO,	RCC_USBCKSELR, 4, 1),
+	MUX_CFG(MUX_SPDIF,	RCC_SPDIFCKSELR, 0, 2),
+	MUX_CFG(MUX_SPI2S1,	RCC_SPI2S1CKSELR, 0, 3),
+	MUX_CFG(MUX_CEC,	RCC_CECCKSELR, 0, 2),
+	MUX_CFG(MUX_LPTIM1,	RCC_LPTIM1CKSELR, 0, 3),
+	MUX_CFG(MUX_UART6,	RCC_UART6CKSELR, 0, 3),
+	MUX_CFG(MUX_FDCAN,	RCC_FDCANCKSELR, 0, 2),
+	MUX_CFG(MUX_SAI2,	RCC_SAI2CKSELR, 0, 3),
+	MUX_CFG(MUX_SAI3,	RCC_SAI3CKSELR, 0, 3),
+	MUX_CFG(MUX_SAI4,	RCC_SAI4CKSELR, 0, 3),
+	MUX_CFG(MUX_ADC,	RCC_ADCCKSELR, 0, 2),
+	MUX_CFG(MUX_DSI,	RCC_DSICKSELR, 0, 1),
+	MUX_CFG(MUX_RNG1,	RCC_RNG1CKSELR, 0, 2),
+	MUX_CFG(MUX_STGEN,	RCC_STGENCKSELR, 0, 2),
+	MUX_CFG(MUX_UART1,	RCC_UART1CKSELR, 0, 3),
+	MUX_CFG(MUX_SPI6,	RCC_SPI6CKSELR, 0, 3),
+	MUX_CFG(MUX_MCO1,	RCC_MCO1CFGR, 0, 3),
+	MUX_CFG(MUX_MCO2,	RCC_MCO2CFGR, 0, 3),
+};
+
+#define MASK_WIDTH_SHIFT(_width, _shift) \
+	GENMASK(((_width) + (_shift) - 1U), (_shift))
+
+int clk_mux_get_parent(struct stm32_clk_priv *priv, uint32_t mux_id)
+{
+	const struct mux_cfg *mux;
+	uint32_t mask;
+
+	if (mux_id >= priv->nb_parents) {
+		panic();
+	}
+
+	mux = &priv->parents[mux_id];
+
+	mask = MASK_WIDTH_SHIFT(mux->width, mux->shift);
+
+	return (mmio_read_32(priv->base + mux->offset) & mask) >> mux->shift;
+}
+
+static int clk_mux_set_parent(struct stm32_clk_priv *priv, uint16_t pid, uint8_t sel)
+{
+	const struct mux_cfg *mux = &priv->parents[pid];
+	uintptr_t address = priv->base + mux->offset;
+	uint32_t mask;
+	uint64_t timeout;
+
+	mask = MASK_WIDTH_SHIFT(mux->width, mux->shift);
+
+	mmio_clrsetbits_32(address, mask, (sel << mux->shift) & mask);
+
+	if (mux->bitrdy == MUX_NO_BIT_RDY) {
+		return 0;
+	}
+
+	timeout = timeout_init_us(CLKSRC_TIMEOUT);
+
+	mask = BIT(mux->bitrdy);
+
+	while ((mmio_read_32(address) & mask) == 0U) {
+		if (timeout_elapsed(timeout)) {
+			return -ETIMEDOUT;
+		}
+	}
+
+	return 0;
+}
+
+static int stm32_clk_configure_mux(struct stm32_clk_priv *priv, uint32_t val)
+{
+	uint32_t data = val & CMD_DATA_MASK;
+	int mux = (data & MUX_ID_MASK) >> MUX_ID_SHIFT;
+	int sel = (data & MUX_SEL_MASK) >> MUX_SEL_SHIFT;
+
+	return clk_mux_set_parent(priv, mux, sel);
+}
+
+int clk_stm32_set_div(struct stm32_clk_priv *priv, uint32_t div_id, uint32_t value)
+{
+	const struct div_cfg *divider;
+	uintptr_t address;
+	uint64_t timeout;
+	uint32_t mask;
+
+	if (div_id >= priv->nb_div) {
+		panic();
+	}
+
+	divider = &priv->div[div_id];
+	address = priv->base + divider->offset;
+
+	mask = MASK_WIDTH_SHIFT(divider->width, divider->shift);
+	mmio_clrsetbits_32(address, mask, (value << divider->shift) & mask);
+
+	if (divider->bitrdy == DIV_NO_BIT_RDY) {
+		return 0;
+	}
+
+	timeout = timeout_init_us(CLKSRC_TIMEOUT);
+	mask = BIT(divider->bitrdy);
+
+	while ((mmio_read_32(address) & mask) == 0U) {
+		if (timeout_elapsed(timeout)) {
+			return -ETIMEDOUT;
+		}
+	}
+
+	return 0;
+}
 
 const char *stm32mp_osc_node_label[NB_OSC] = {
 	[_LSI] = "clk-lsi",
@@ -56,6 +313,7 @@ enum stm32mp1_parent_id {
 	_HSI_KER = NB_OSC,
 	_HSE_KER,
 	_HSE_KER_DIV2,
+	_HSE_RTC,
 	_CSI_KER,
 	_PLL1_P,
 	_PLL1_Q,
@@ -107,7 +365,7 @@ enum stm32mp1_parent_sel {
 	_USBPHY_SEL,
 	_USBO_SEL,
 	_MPU_SEL,
-	_PER_SEL,
+	_CKPER_SEL,
 	_RTC_SEL,
 	_PARENT_SEL_NB,
 	_UNKNOWN_SEL = 0xff,
@@ -125,6 +383,7 @@ static const uint8_t parent_id_clock_id[_PARENT_NB] = {
 	[_HSI_KER] = CK_HSI,
 	[_HSE_KER] = CK_HSE,
 	[_HSE_KER_DIV2] = CK_HSE_DIV2,
+	[_HSE_RTC] = _UNKNOWN_ID,
 	[_CSI_KER] = CK_CSI,
 	[_PLL1_P] = PLL1_P,
 	[_PLL1_Q] = PLL1_Q,
@@ -205,23 +464,6 @@ enum stm32mp1_clkdiv_id {
 	CLKDIV_NB
 };
 
-enum stm32mp1_pllcfg {
-	PLLCFG_M,
-	PLLCFG_N,
-	PLLCFG_P,
-	PLLCFG_Q,
-	PLLCFG_R,
-	PLLCFG_O,
-	PLLCFG_NB
-};
-
-enum stm32mp1_pllcsg {
-	PLLCSG_MOD_PER,
-	PLLCSG_INC_STEP,
-	PLLCSG_SSCG_MODE,
-	PLLCSG_NB
-};
-
 enum stm32mp1_plltype {
 	PLL_800,
 	PLL_1600,
@@ -231,7 +473,6 @@ enum stm32mp1_plltype {
 struct stm32mp1_pll {
 	uint8_t refclk_min;
 	uint8_t refclk_max;
-	uint8_t divn_max;
 };
 
 struct stm32mp1_clk_gate {
@@ -239,6 +480,7 @@ struct stm32mp1_clk_gate {
 	uint8_t bit;
 	uint8_t index;
 	uint8_t set_clr;
+	uint8_t secure;
 	uint8_t sel; /* Relates to enum stm32mp1_parent_sel */
 	uint8_t fixed; /* Relates to enum stm32mp1_parent_id */
 };
@@ -264,45 +506,49 @@ struct stm32mp1_clk_pll {
 };
 
 /* Clocks with selectable source and non set/clr register access */
-#define _CLK_SELEC(off, b, idx, s)			\
+#define _CLK_SELEC(sec, off, b, idx, s)			\
 	{						\
 		.offset = (off),			\
 		.bit = (b),				\
 		.index = (idx),				\
 		.set_clr = 0,				\
+		.secure = (sec),			\
 		.sel = (s),				\
 		.fixed = _UNKNOWN_ID,			\
 	}
 
 /* Clocks with fixed source and non set/clr register access */
-#define _CLK_FIXED(off, b, idx, f)			\
+#define _CLK_FIXED(sec, off, b, idx, f)			\
 	{						\
 		.offset = (off),			\
 		.bit = (b),				\
 		.index = (idx),				\
 		.set_clr = 0,				\
+		.secure = (sec),			\
 		.sel = _UNKNOWN_SEL,			\
 		.fixed = (f),				\
 	}
 
 /* Clocks with selectable source and set/clr register access */
-#define _CLK_SC_SELEC(off, b, idx, s)			\
+#define _CLK_SC_SELEC(sec, off, b, idx, s)			\
 	{						\
 		.offset = (off),			\
 		.bit = (b),				\
 		.index = (idx),				\
 		.set_clr = 1,				\
+		.secure = (sec),			\
 		.sel = (s),				\
 		.fixed = _UNKNOWN_ID,			\
 	}
 
 /* Clocks with fixed source and set/clr register access */
-#define _CLK_SC_FIXED(off, b, idx, f)			\
+#define _CLK_SC_FIXED(sec, off, b, idx, f)			\
 	{						\
 		.offset = (off),			\
 		.bit = (b),				\
 		.index = (idx),				\
 		.set_clr = 1,				\
+		.secure = (sec),			\
 		.sel = _UNKNOWN_SEL,			\
 		.fixed = (f),				\
 	}
@@ -336,81 +582,94 @@ struct stm32mp1_clk_pll {
 
 #define NB_GATES	ARRAY_SIZE(stm32mp1_clk_gate)
 
+#define SEC		1
+#define N_S		0
+
 static const struct stm32mp1_clk_gate stm32mp1_clk_gate[] = {
-	_CLK_FIXED(RCC_DDRITFCR, 0, DDRC1, _ACLK),
-	_CLK_FIXED(RCC_DDRITFCR, 1, DDRC1LP, _ACLK),
-	_CLK_FIXED(RCC_DDRITFCR, 2, DDRC2, _ACLK),
-	_CLK_FIXED(RCC_DDRITFCR, 3, DDRC2LP, _ACLK),
-	_CLK_FIXED(RCC_DDRITFCR, 4, DDRPHYC, _PLL2_R),
-	_CLK_FIXED(RCC_DDRITFCR, 5, DDRPHYCLP, _PLL2_R),
-	_CLK_FIXED(RCC_DDRITFCR, 6, DDRCAPB, _PCLK4),
-	_CLK_FIXED(RCC_DDRITFCR, 7, DDRCAPBLP, _PCLK4),
-	_CLK_FIXED(RCC_DDRITFCR, 8, AXIDCG, _ACLK),
-	_CLK_FIXED(RCC_DDRITFCR, 9, DDRPHYCAPB, _PCLK4),
-	_CLK_FIXED(RCC_DDRITFCR, 10, DDRPHYCAPBLP, _PCLK4),
+	_CLK_FIXED(SEC, RCC_DDRITFCR, 0, DDRC1, _ACLK),
+	_CLK_FIXED(SEC, RCC_DDRITFCR, 1, DDRC1LP, _ACLK),
+	_CLK_FIXED(SEC, RCC_DDRITFCR, 2, DDRC2, _ACLK),
+	_CLK_FIXED(SEC, RCC_DDRITFCR, 3, DDRC2LP, _ACLK),
+	_CLK_FIXED(SEC, RCC_DDRITFCR, 4, DDRPHYC, _PLL2_R),
+	_CLK_FIXED(SEC, RCC_DDRITFCR, 5, DDRPHYCLP, _PLL2_R),
+	_CLK_FIXED(SEC, RCC_DDRITFCR, 6, DDRCAPB, _PCLK4),
+	_CLK_FIXED(SEC, RCC_DDRITFCR, 7, DDRCAPBLP, _PCLK4),
+	_CLK_FIXED(SEC, RCC_DDRITFCR, 8, AXIDCG, _ACLK),
+	_CLK_FIXED(SEC, RCC_DDRITFCR, 9, DDRPHYCAPB, _PCLK4),
+	_CLK_FIXED(SEC, RCC_DDRITFCR, 10, DDRPHYCAPBLP, _PCLK4),
 
-	_CLK_SC_FIXED(RCC_MP_APB1ENSETR, 6, TIM12_K, _PCLK1),
-	_CLK_SC_SELEC(RCC_MP_APB1ENSETR, 14, USART2_K, _UART24_SEL),
-	_CLK_SC_SELEC(RCC_MP_APB1ENSETR, 15, USART3_K, _UART35_SEL),
-	_CLK_SC_SELEC(RCC_MP_APB1ENSETR, 16, UART4_K, _UART24_SEL),
-	_CLK_SC_SELEC(RCC_MP_APB1ENSETR, 17, UART5_K, _UART35_SEL),
-	_CLK_SC_SELEC(RCC_MP_APB1ENSETR, 18, UART7_K, _UART78_SEL),
-	_CLK_SC_SELEC(RCC_MP_APB1ENSETR, 19, UART8_K, _UART78_SEL),
-	_CLK_SC_SELEC(RCC_MP_APB1ENSETR, 21, I2C1_K, _I2C12_SEL),
-	_CLK_SC_SELEC(RCC_MP_APB1ENSETR, 22, I2C2_K, _I2C12_SEL),
-	_CLK_SC_SELEC(RCC_MP_APB1ENSETR, 23, I2C3_K, _I2C35_SEL),
-	_CLK_SC_SELEC(RCC_MP_APB1ENSETR, 24, I2C5_K, _I2C35_SEL),
+#if defined(IMAGE_BL32)
+	_CLK_SC_FIXED(N_S, RCC_MP_APB1ENSETR, 6, TIM12_K, _PCLK1),
+#endif
+	_CLK_SC_SELEC(N_S, RCC_MP_APB1ENSETR, 14, USART2_K, _UART24_SEL),
+	_CLK_SC_SELEC(N_S, RCC_MP_APB1ENSETR, 15, USART3_K, _UART35_SEL),
+	_CLK_SC_SELEC(N_S, RCC_MP_APB1ENSETR, 16, UART4_K, _UART24_SEL),
+	_CLK_SC_SELEC(N_S, RCC_MP_APB1ENSETR, 17, UART5_K, _UART35_SEL),
+	_CLK_SC_SELEC(N_S, RCC_MP_APB1ENSETR, 18, UART7_K, _UART78_SEL),
+	_CLK_SC_SELEC(N_S, RCC_MP_APB1ENSETR, 19, UART8_K, _UART78_SEL),
+	_CLK_SC_SELEC(N_S, RCC_MP_APB1ENSETR, 21, I2C1_K, _I2C12_SEL),
+	_CLK_SC_SELEC(N_S, RCC_MP_APB1ENSETR, 22, I2C2_K, _I2C12_SEL),
+	_CLK_SC_SELEC(N_S, RCC_MP_APB1ENSETR, 23, I2C3_K, _I2C35_SEL),
+	_CLK_SC_SELEC(N_S, RCC_MP_APB1ENSETR, 24, I2C5_K, _I2C35_SEL),
 
-	_CLK_SC_FIXED(RCC_MP_APB2ENSETR, 2, TIM15_K, _PCLK2),
-	_CLK_SC_SELEC(RCC_MP_APB2ENSETR, 13, USART6_K, _UART6_SEL),
+#if defined(IMAGE_BL32)
+	_CLK_SC_FIXED(N_S, RCC_MP_APB2ENSETR, 2, TIM15_K, _PCLK2),
+#endif
+	_CLK_SC_SELEC(N_S, RCC_MP_APB2ENSETR, 13, USART6_K, _UART6_SEL),
 
-	_CLK_SC_FIXED(RCC_MP_APB3ENSETR, 11, SYSCFG, _UNKNOWN_ID),
+	_CLK_SC_FIXED(N_S, RCC_MP_APB3ENSETR, 11, SYSCFG, _UNKNOWN_ID),
 
-	_CLK_SC_SELEC(RCC_MP_APB4ENSETR, 8, DDRPERFM, _UNKNOWN_SEL),
-	_CLK_SC_SELEC(RCC_MP_APB4ENSETR, 15, IWDG2, _UNKNOWN_SEL),
-	_CLK_SC_SELEC(RCC_MP_APB4ENSETR, 16, USBPHY_K, _USBPHY_SEL),
+	_CLK_SC_SELEC(N_S, RCC_MP_APB4ENSETR, 8, DDRPERFM, _UNKNOWN_SEL),
+	_CLK_SC_SELEC(N_S, RCC_MP_APB4ENSETR, 15, IWDG2, _UNKNOWN_SEL),
+	_CLK_SC_SELEC(N_S, RCC_MP_APB4ENSETR, 16, USBPHY_K, _USBPHY_SEL),
 
-	_CLK_SC_SELEC(RCC_MP_APB5ENSETR, 0, SPI6_K, _SPI6_SEL),
-	_CLK_SC_SELEC(RCC_MP_APB5ENSETR, 2, I2C4_K, _I2C46_SEL),
-	_CLK_SC_SELEC(RCC_MP_APB5ENSETR, 3, I2C6_K, _I2C46_SEL),
-	_CLK_SC_SELEC(RCC_MP_APB5ENSETR, 4, USART1_K, _UART1_SEL),
-	_CLK_SC_FIXED(RCC_MP_APB5ENSETR, 8, RTCAPB, _PCLK5),
-	_CLK_SC_FIXED(RCC_MP_APB5ENSETR, 11, TZC1, _PCLK5),
-	_CLK_SC_FIXED(RCC_MP_APB5ENSETR, 12, TZC2, _PCLK5),
-	_CLK_SC_FIXED(RCC_MP_APB5ENSETR, 13, TZPC, _PCLK5),
-	_CLK_SC_FIXED(RCC_MP_APB5ENSETR, 15, IWDG1, _PCLK5),
-	_CLK_SC_FIXED(RCC_MP_APB5ENSETR, 16, BSEC, _PCLK5),
-	_CLK_SC_SELEC(RCC_MP_APB5ENSETR, 20, STGEN_K, _STGEN_SEL),
+	_CLK_SC_SELEC(SEC, RCC_MP_APB5ENSETR, 0, SPI6_K, _SPI6_SEL),
+	_CLK_SC_SELEC(SEC, RCC_MP_APB5ENSETR, 2, I2C4_K, _I2C46_SEL),
+	_CLK_SC_SELEC(SEC, RCC_MP_APB5ENSETR, 3, I2C6_K, _I2C46_SEL),
+	_CLK_SC_SELEC(SEC, RCC_MP_APB5ENSETR, 4, USART1_K, _UART1_SEL),
+	_CLK_SC_FIXED(SEC, RCC_MP_APB5ENSETR, 8, RTCAPB, _PCLK5),
+	_CLK_SC_FIXED(SEC, RCC_MP_APB5ENSETR, 11, TZC1, _PCLK5),
+	_CLK_SC_FIXED(SEC, RCC_MP_APB5ENSETR, 12, TZC2, _PCLK5),
+	_CLK_SC_FIXED(SEC, RCC_MP_APB5ENSETR, 13, TZPC, _PCLK5),
+	_CLK_SC_FIXED(SEC, RCC_MP_APB5ENSETR, 15, IWDG1, _PCLK5),
+	_CLK_SC_FIXED(SEC, RCC_MP_APB5ENSETR, 16, BSEC, _PCLK5),
+	_CLK_SC_SELEC(SEC, RCC_MP_APB5ENSETR, 20, STGEN_K, _STGEN_SEL),
 
-	_CLK_SC_SELEC(RCC_MP_AHB2ENSETR, 8, USBO_K, _USBO_SEL),
-	_CLK_SC_SELEC(RCC_MP_AHB2ENSETR, 16, SDMMC3_K, _SDMMC3_SEL),
+#if defined(IMAGE_BL32)
+	_CLK_SC_SELEC(N_S, RCC_MP_AHB2ENSETR, 8, USBO_K, _USBO_SEL),
+	_CLK_SC_SELEC(N_S, RCC_MP_AHB2ENSETR, 16, SDMMC3_K, _SDMMC3_SEL),
+#endif
 
-	_CLK_SC_SELEC(RCC_MP_AHB4ENSETR, 0, GPIOA, _UNKNOWN_SEL),
-	_CLK_SC_SELEC(RCC_MP_AHB4ENSETR, 1, GPIOB, _UNKNOWN_SEL),
-	_CLK_SC_SELEC(RCC_MP_AHB4ENSETR, 2, GPIOC, _UNKNOWN_SEL),
-	_CLK_SC_SELEC(RCC_MP_AHB4ENSETR, 3, GPIOD, _UNKNOWN_SEL),
-	_CLK_SC_SELEC(RCC_MP_AHB4ENSETR, 4, GPIOE, _UNKNOWN_SEL),
-	_CLK_SC_SELEC(RCC_MP_AHB4ENSETR, 5, GPIOF, _UNKNOWN_SEL),
-	_CLK_SC_SELEC(RCC_MP_AHB4ENSETR, 6, GPIOG, _UNKNOWN_SEL),
-	_CLK_SC_SELEC(RCC_MP_AHB4ENSETR, 7, GPIOH, _UNKNOWN_SEL),
-	_CLK_SC_SELEC(RCC_MP_AHB4ENSETR, 8, GPIOI, _UNKNOWN_SEL),
-	_CLK_SC_SELEC(RCC_MP_AHB4ENSETR, 9, GPIOJ, _UNKNOWN_SEL),
-	_CLK_SC_SELEC(RCC_MP_AHB4ENSETR, 10, GPIOK, _UNKNOWN_SEL),
+	_CLK_SC_SELEC(N_S, RCC_MP_AHB4ENSETR, 0, GPIOA, _UNKNOWN_SEL),
+	_CLK_SC_SELEC(N_S, RCC_MP_AHB4ENSETR, 1, GPIOB, _UNKNOWN_SEL),
+	_CLK_SC_SELEC(N_S, RCC_MP_AHB4ENSETR, 2, GPIOC, _UNKNOWN_SEL),
+	_CLK_SC_SELEC(N_S, RCC_MP_AHB4ENSETR, 3, GPIOD, _UNKNOWN_SEL),
+	_CLK_SC_SELEC(N_S, RCC_MP_AHB4ENSETR, 4, GPIOE, _UNKNOWN_SEL),
+	_CLK_SC_SELEC(N_S, RCC_MP_AHB4ENSETR, 5, GPIOF, _UNKNOWN_SEL),
+	_CLK_SC_SELEC(N_S, RCC_MP_AHB4ENSETR, 6, GPIOG, _UNKNOWN_SEL),
+	_CLK_SC_SELEC(N_S, RCC_MP_AHB4ENSETR, 7, GPIOH, _UNKNOWN_SEL),
+	_CLK_SC_SELEC(N_S, RCC_MP_AHB4ENSETR, 8, GPIOI, _UNKNOWN_SEL),
+	_CLK_SC_SELEC(N_S, RCC_MP_AHB4ENSETR, 9, GPIOJ, _UNKNOWN_SEL),
+	_CLK_SC_SELEC(N_S, RCC_MP_AHB4ENSETR, 10, GPIOK, _UNKNOWN_SEL),
 
-	_CLK_SC_FIXED(RCC_MP_AHB5ENSETR, 0, GPIOZ, _PCLK5),
-	_CLK_SC_FIXED(RCC_MP_AHB5ENSETR, 4, CRYP1, _PCLK5),
-	_CLK_SC_FIXED(RCC_MP_AHB5ENSETR, 5, HASH1, _PCLK5),
-	_CLK_SC_SELEC(RCC_MP_AHB5ENSETR, 6, RNG1_K, _RNG1_SEL),
-	_CLK_SC_FIXED(RCC_MP_AHB5ENSETR, 8, BKPSRAM, _PCLK5),
+	_CLK_SC_FIXED(SEC, RCC_MP_AHB5ENSETR, 0, GPIOZ, _PCLK5),
+	_CLK_SC_FIXED(SEC, RCC_MP_AHB5ENSETR, 4, CRYP1, _PCLK5),
+	_CLK_SC_FIXED(SEC, RCC_MP_AHB5ENSETR, 5, HASH1, _PCLK5),
+	_CLK_SC_SELEC(SEC, RCC_MP_AHB5ENSETR, 6, RNG1_K, _RNG1_SEL),
+	_CLK_SC_FIXED(SEC, RCC_MP_AHB5ENSETR, 8, BKPSRAM, _PCLK5),
 
-	_CLK_SC_SELEC(RCC_MP_AHB6ENSETR, 12, FMC_K, _FMC_SEL),
-	_CLK_SC_SELEC(RCC_MP_AHB6ENSETR, 14, QSPI_K, _QSPI_SEL),
-	_CLK_SC_SELEC(RCC_MP_AHB6ENSETR, 16, SDMMC1_K, _SDMMC12_SEL),
-	_CLK_SC_SELEC(RCC_MP_AHB6ENSETR, 17, SDMMC2_K, _SDMMC12_SEL),
-	_CLK_SC_SELEC(RCC_MP_AHB6ENSETR, 24, USBH, _UNKNOWN_SEL),
+#if defined(IMAGE_BL2)
+	_CLK_SC_SELEC(N_S, RCC_MP_AHB6ENSETR, 12, FMC_K, _FMC_SEL),
+	_CLK_SC_SELEC(N_S, RCC_MP_AHB6ENSETR, 14, QSPI_K, _QSPI_SEL),
+#endif
+	_CLK_SC_SELEC(N_S, RCC_MP_AHB6ENSETR, 16, SDMMC1_K, _SDMMC12_SEL),
+	_CLK_SC_SELEC(N_S, RCC_MP_AHB6ENSETR, 17, SDMMC2_K, _SDMMC12_SEL),
+#if defined(IMAGE_BL32)
+	_CLK_SC_SELEC(N_S, RCC_MP_AHB6ENSETR, 24, USBH, _UNKNOWN_SEL),
+#endif
 
-	_CLK_SELEC(RCC_BDCR, 20, RTC, _RTC_SEL),
-	_CLK_SELEC(RCC_DBGCFGR, 8, CK_DBG, _UNKNOWN_SEL),
+	_CLK_SELEC(SEC, RCC_BDCR, 20, RTC, _RTC_SEL),
+	_CLK_SELEC(N_S, RCC_DBGCFGR, 8, CK_DBG, _UNKNOWN_SEL),
 };
 
 static const uint8_t i2c12_parents[] = {
@@ -465,12 +724,12 @@ static const uint8_t fmc_parents[] = {
 	_ACLK, _PLL3_R, _PLL4_P, _CK_PER
 };
 
-static const uint8_t ass_parents[] = {
-	_HSI, _HSE, _PLL2
+static const uint8_t axiss_parents[] = {
+	_HSI, _HSE, _PLL2_P
 };
 
-static const uint8_t mss_parents[] = {
-	_HSI, _HSE, _CSI, _PLL3
+static const uint8_t mcuss_parents[] = {
+	_HSI, _HSE, _CSI, _PLL3_P
 };
 
 static const uint8_t usbphy_parents[] = {
@@ -490,7 +749,7 @@ static const uint8_t per_parents[] = {
 };
 
 static const uint8_t rtc_parents[] = {
-	_UNKNOWN_ID, _LSE, _LSI, _HSE
+	_UNKNOWN_ID, _LSE, _LSI, _HSE_RTC
 };
 
 static const struct stm32mp1_clk_sel stm32mp1_clk_sel[_PARENT_SEL_NB] = {
@@ -502,7 +761,7 @@ static const struct stm32mp1_clk_sel stm32mp1_clk_sel[_PARENT_SEL_NB] = {
 	_CLK_PARENT_SEL(UART1, RCC_UART1CKSELR, usart1_parents),
 	_CLK_PARENT_SEL(RNG1, RCC_RNG1CKSELR, rng1_parents),
 	_CLK_PARENT_SEL(MPU, RCC_MPCKSELR, mpu_parents),
-	_CLK_PARENT_SEL(PER, RCC_CPERCKSELR, per_parents),
+	_CLK_PARENT_SEL(CKPER, RCC_CPERCKSELR, per_parents),
 	_CLK_PARENT_SEL(RTC, RCC_BDCR, rtc_parents),
 	_CLK_PARENT_SEL(UART6, RCC_UART6CKSELR, uart6_parents),
 	_CLK_PARENT_SEL(UART24, RCC_UART24CKSELR, uart234578_parents),
@@ -512,24 +771,33 @@ static const struct stm32mp1_clk_sel stm32mp1_clk_sel[_PARENT_SEL_NB] = {
 	_CLK_PARENT_SEL(SDMMC3, RCC_SDMMC3CKSELR, sdmmc3_parents),
 	_CLK_PARENT_SEL(QSPI, RCC_QSPICKSELR, qspi_parents),
 	_CLK_PARENT_SEL(FMC, RCC_FMCCKSELR, fmc_parents),
-	_CLK_PARENT_SEL(AXIS, RCC_ASSCKSELR, ass_parents),
-	_CLK_PARENT_SEL(MCUS, RCC_MSSCKSELR, mss_parents),
+	_CLK_PARENT_SEL(AXIS, RCC_ASSCKSELR, axiss_parents),
+	_CLK_PARENT_SEL(MCUS, RCC_MSSCKSELR, mcuss_parents),
 	_CLK_PARENT_SEL(USBPHY, RCC_USBCKSELR, usbphy_parents),
 	_CLK_PARENT_SEL(USBO, RCC_USBCKSELR, usbo_parents),
 };
 
 /* Define characteristic of PLL according type */
-#define DIVN_MIN	24
+#define POST_DIVM_MIN	8000000U
+#define POST_DIVM_MAX	16000000U
+#define DIVM_MIN	0U
+#define DIVM_MAX	63U
+#define DIVN_MIN	24U
+#define DIVN_MAX	99U
+#define DIVP_MIN	0U
+#define DIVP_MAX	127U
+#define FRAC_MAX	8192U
+#define VCO_MIN		800000000U
+#define VCO_MAX		1600000000U
+
 static const struct stm32mp1_pll stm32mp1_pll[PLL_TYPE_NB] = {
 	[PLL_800] = {
 		.refclk_min = 4,
 		.refclk_max = 16,
-		.divn_max = 99,
 	},
 	[PLL_1600] = {
 		.refclk_min = 8,
 		.refclk_max = 16,
-		.divn_max = 199,
 	},
 };
 
@@ -587,6 +855,7 @@ static const char * const stm32mp1_clk_parent_name[_PARENT_NB] __unused = {
 	[_HSI_KER] = "HSI_KER",
 	[_HSE_KER] = "HSE_KER",
 	[_HSE_KER_DIV2] = "HSE_KER_DIV2",
+	[_HSE_RTC] = "HSE_RTC",
 	[_CSI_KER] = "CSI_KER",
 	[_PLL1_P] = "PLL1_P",
 	[_PLL1_Q] = "PLL1_Q",
@@ -624,6 +893,13 @@ static const struct stm32mp1_clk_gate *gate_ref(unsigned int idx)
 {
 	return &stm32mp1_clk_gate[idx];
 }
+
+#if defined(IMAGE_BL32)
+static bool gate_is_non_secure(const struct stm32mp1_clk_gate *gate)
+{
+	return gate->secure == N_S;
+}
+#endif
 
 static const struct stm32mp1_clk_sel *clk_sel_ref(unsigned int idx)
 {
@@ -695,7 +971,7 @@ static int stm32mp1_clk_get_gated_id(unsigned long id)
 		}
 	}
 
-	ERROR("%s: clk id %d not found\n", __func__, (uint32_t)id);
+	ERROR("%s: clk id %lu not found\n", __func__, id);
 
 	return -EINVAL;
 }
@@ -847,9 +1123,7 @@ static unsigned long get_clock_rate(int p)
 
 			reg = mmio_read_32(rcc_base + RCC_MPCKDIVR);
 			clkdiv = reg & RCC_MPUDIV_MASK;
-			if (clkdiv != 0U) {
-				clock /= stm32mp1_mpu_div[clkdiv];
-			}
+			clock >>= stm32mp1_mpu_div[clkdiv];
 			break;
 		default:
 			break;
@@ -969,6 +1243,10 @@ static unsigned long get_clock_rate(int p)
 	case _HSE_KER_DIV2:
 		clock = stm32mp1_clk_get_fixed(_HSE) >> 1;
 		break;
+	case _HSE_RTC:
+		clock = stm32mp1_clk_get_fixed(_HSE);
+		clock /= (mmio_read_32(rcc_base + RCC_RTCDIVR) & RCC_DIVR_DIV_MASK) + 1U;
+		break;
 	case _LSI:
 		clock = stm32mp1_clk_get_fixed(_LSI);
 		break;
@@ -1057,17 +1335,6 @@ static bool __clk_is_enabled(struct stm32mp1_clk_gate const *gate)
 	return mmio_read_32(rcc_base + gate->offset) & BIT(gate->bit);
 }
 
-unsigned int stm32mp1_clk_get_refcount(unsigned long id)
-{
-	int i = stm32mp1_clk_get_gated_id(id);
-
-	if (i < 0) {
-		panic();
-	}
-
-	return gate_refcounts[i];
-}
-
 /* Oscillators and PLLs are not gated at runtime */
 static bool clock_is_always_on(unsigned long id)
 {
@@ -1086,17 +1353,20 @@ static bool clock_is_always_on(unsigned long id)
 	case PLL3_P:
 	case PLL3_Q:
 	case PLL3_R:
+	case CK_AXI:
+	case CK_MPU:
+	case CK_MCU:
+	case RTC:
 		return true;
 	default:
 		return false;
 	}
 }
 
-void __stm32mp1_clk_enable(unsigned long id, bool secure)
+static void __stm32mp1_clk_enable(unsigned long id, bool with_refcnt)
 {
 	const struct stm32mp1_clk_gate *gate;
 	int i;
-	unsigned int *refcnt;
 
 	if (clock_is_always_on(id)) {
 		return;
@@ -1104,27 +1374,44 @@ void __stm32mp1_clk_enable(unsigned long id, bool secure)
 
 	i = stm32mp1_clk_get_gated_id(id);
 	if (i < 0) {
-		ERROR("Clock %d can't be enabled\n", (uint32_t)id);
+		ERROR("Clock %lu can't be enabled\n", id);
 		panic();
 	}
 
 	gate = gate_ref(i);
-	refcnt = &gate_refcounts[i];
+
+	if (!with_refcnt) {
+		__clk_enable(gate);
+		return;
+	}
+
+#if defined(IMAGE_BL32)
+	if (gate_is_non_secure(gate)) {
+		/* Enable non-secure clock w/o any refcounting */
+		__clk_enable(gate);
+		return;
+	}
+#endif
 
 	stm32mp1_clk_lock(&refcount_lock);
 
-	if (stm32mp_incr_shrefcnt(refcnt, secure) != 0) {
+	if (gate_refcounts[i] == 0U) {
 		__clk_enable(gate);
+	}
+
+	gate_refcounts[i]++;
+	if (gate_refcounts[i] == UINT_MAX) {
+		ERROR("Clock %lu refcount reached max value\n", id);
+		panic();
 	}
 
 	stm32mp1_clk_unlock(&refcount_lock);
 }
 
-void __stm32mp1_clk_disable(unsigned long id, bool secure)
+static void __stm32mp1_clk_disable(unsigned long id, bool with_refcnt)
 {
 	const struct stm32mp1_clk_gate *gate;
 	int i;
-	unsigned int *refcnt;
 
 	if (clock_is_always_on(id)) {
 		return;
@@ -1132,33 +1419,52 @@ void __stm32mp1_clk_disable(unsigned long id, bool secure)
 
 	i = stm32mp1_clk_get_gated_id(id);
 	if (i < 0) {
-		ERROR("Clock %d can't be disabled\n", (uint32_t)id);
+		ERROR("Clock %lu can't be disabled\n", id);
 		panic();
 	}
 
 	gate = gate_ref(i);
-	refcnt = &gate_refcounts[i];
+
+	if (!with_refcnt) {
+		__clk_disable(gate);
+		return;
+	}
+
+#if defined(IMAGE_BL32)
+	if (gate_is_non_secure(gate)) {
+		/* Don't disable non-secure clocks */
+		return;
+	}
+#endif
 
 	stm32mp1_clk_lock(&refcount_lock);
 
-	if (stm32mp_decr_shrefcnt(refcnt, secure) != 0) {
+	if (gate_refcounts[i] == 0U) {
+		ERROR("Clock %lu refcount reached 0\n", id);
+		panic();
+	}
+	gate_refcounts[i]--;
+
+	if (gate_refcounts[i] == 0U) {
 		__clk_disable(gate);
 	}
 
 	stm32mp1_clk_unlock(&refcount_lock);
 }
 
-void stm32mp_clk_enable(unsigned long id)
+static int stm32mp_clk_enable(unsigned long id)
 {
 	__stm32mp1_clk_enable(id, true);
+
+	return 0;
 }
 
-void stm32mp_clk_disable(unsigned long id)
+static void stm32mp_clk_disable(unsigned long id)
 {
 	__stm32mp1_clk_disable(id, true);
 }
 
-bool stm32mp_clk_is_enabled(unsigned long id)
+static bool stm32mp_clk_is_enabled(unsigned long id)
 {
 	int i;
 
@@ -1174,15 +1480,55 @@ bool stm32mp_clk_is_enabled(unsigned long id)
 	return __clk_is_enabled(gate_ref(i));
 }
 
-unsigned long stm32mp_clk_get_rate(unsigned long id)
+static unsigned long stm32mp_clk_get_rate(unsigned long id)
 {
+	uintptr_t rcc_base = stm32mp_rcc_base();
 	int p = stm32mp1_clk_get_parent(id);
+	uint32_t prescaler, timpre;
+	unsigned long parent_rate;
 
 	if (p < 0) {
 		return 0;
 	}
 
-	return get_clock_rate(p);
+	parent_rate = get_clock_rate(p);
+
+	switch (id) {
+	case TIM2_K:
+	case TIM3_K:
+	case TIM4_K:
+	case TIM5_K:
+	case TIM6_K:
+	case TIM7_K:
+	case TIM12_K:
+	case TIM13_K:
+	case TIM14_K:
+		prescaler = mmio_read_32(rcc_base + RCC_APB1DIVR) &
+			    RCC_APBXDIV_MASK;
+		timpre = mmio_read_32(rcc_base + RCC_TIMG1PRER) &
+			 RCC_TIMGXPRER_TIMGXPRE;
+		break;
+
+	case TIM1_K:
+	case TIM8_K:
+	case TIM15_K:
+	case TIM16_K:
+	case TIM17_K:
+		prescaler = mmio_read_32(rcc_base + RCC_APB2DIVR) &
+			    RCC_APBXDIV_MASK;
+		timpre = mmio_read_32(rcc_base + RCC_TIMG2PRER) &
+			 RCC_TIMGXPRER_TIMGXPRE;
+		break;
+
+	default:
+		return parent_rate;
+	}
+
+	if (prescaler == 0U) {
+		return parent_rate;
+	}
+
+	return parent_rate * (timpre + 1U) * 2U;
 }
 
 static void stm32mp1_ls_osc_set(bool enable, uint32_t offset, uint32_t mask_on)
@@ -1233,6 +1579,11 @@ static void stm32mp1_lse_enable(bool bypass, bool digbyp, uint32_t lsedrv)
 	uint32_t value;
 	uintptr_t rcc_base = stm32mp_rcc_base();
 
+	/* Do not reconfigure LSE if it is already ON */
+	if ((mmio_read_32(rcc_base + RCC_BDCR) & RCC_BDCR_LSEON) == RCC_BDCR_LSEON) {
+		return;
+	}
+
 	if (digbyp) {
 		mmio_setbits_32(rcc_base + RCC_BDCR, RCC_BDCR_DIGBYP);
 	}
@@ -1266,7 +1617,7 @@ static void stm32mp1_lse_enable(bool bypass, bool digbyp, uint32_t lsedrv)
 static void stm32mp1_lse_wait(void)
 {
 	if (stm32mp1_osc_wait(true, RCC_BDCR, RCC_BDCR_LSERDY) != 0) {
-		VERBOSE("%s: failed\n", __func__);
+		EARLY_ERROR("%s: failed\n", __func__);
 	}
 }
 
@@ -1275,7 +1626,7 @@ static void stm32mp1_lsi_set(bool enable)
 	stm32mp1_ls_osc_set(enable, RCC_RDLSICR, RCC_RDLSICR_LSION);
 
 	if (stm32mp1_osc_wait(enable, RCC_RDLSICR, RCC_RDLSICR_LSIRDY) != 0) {
-		VERBOSE("%s: failed\n", __func__);
+		EARLY_ERROR("%s: failed\n", __func__);
 	}
 }
 
@@ -1293,19 +1644,26 @@ static void stm32mp1_hse_enable(bool bypass, bool digbyp, bool css)
 
 	stm32mp1_hs_ocs_set(true, RCC_OCENR_HSEON);
 	if (stm32mp1_osc_wait(true, RCC_OCRDYR, RCC_OCRDYR_HSERDY) != 0) {
-		VERBOSE("%s: failed\n", __func__);
+		EARLY_ERROR("%s: failed\n", __func__);
 	}
 
 	if (css) {
 		mmio_write_32(rcc_base + RCC_OCENSETR, RCC_OCENR_HSECSSON);
 	}
+
+#if STM32MP_UART_PROGRAMMER || STM32MP_USB_PROGRAMMER
+	if ((mmio_read_32(rcc_base + RCC_OCENSETR) & RCC_OCENR_HSEBYP) &&
+	    (!(digbyp || bypass))) {
+		panic();
+	}
+#endif
 }
 
 static void stm32mp1_csi_set(bool enable)
 {
 	stm32mp1_hs_ocs_set(enable, RCC_OCENR_CSION);
 	if (stm32mp1_osc_wait(enable, RCC_OCRDYR, RCC_OCRDYR_CSIRDY) != 0) {
-		VERBOSE("%s: failed\n", __func__);
+		EARLY_ERROR("%s: failed\n", __func__);
 	}
 }
 
@@ -1313,7 +1671,7 @@ static void stm32mp1_hsi_set(bool enable)
 {
 	stm32mp1_hs_ocs_set(enable, RCC_OCENR_HSION);
 	if (stm32mp1_osc_wait(enable, RCC_OCRDYR, RCC_OCRDYR_HSIRDY) != 0) {
-		VERBOSE("%s: failed\n", __func__);
+		EARLY_ERROR("%s: failed\n", __func__);
 	}
 }
 
@@ -1353,7 +1711,7 @@ static int stm32mp1_hsidiv(unsigned long hsifreq)
 	}
 
 	if (hsidiv == 4U) {
-		ERROR("Invalid clk-hsi frequency\n");
+		EARLY_ERROR("Invalid clk-hsi frequency\n");
 		return -1;
 	}
 
@@ -1366,7 +1724,7 @@ static int stm32mp1_hsidiv(unsigned long hsifreq)
 
 static bool stm32mp1_check_pll_conf(enum stm32mp1_pll_id pll_id,
 				    unsigned int clksrc,
-				    uint32_t *pllcfg, int plloff)
+				    uint32_t *pllcfg, uint32_t fracv)
 {
 	const struct stm32mp1_clk_pll *pll = pll_ref(pll_id);
 	uintptr_t rcc_base = stm32mp_rcc_base();
@@ -1375,8 +1733,7 @@ static bool stm32mp1_check_pll_conf(enum stm32mp1_pll_id pll_id,
 	uintptr_t clksrc_address = rcc_base + (clksrc >> 4);
 	unsigned long refclk;
 	uint32_t ifrge = 0U;
-	uint32_t src, value, fracv = 0;
-	void *fdt;
+	uint32_t src, value;
 
 	/* Check PLL output */
 	if (mmio_read_32(pllxcr) != RCC_PLLNCR_PLLON) {
@@ -1415,10 +1772,6 @@ static bool stm32mp1_check_pll_conf(enum stm32mp1_pll_id pll_id,
 	}
 
 	/* Fractional configuration */
-	if (fdt_get_address(&fdt) == 1) {
-		fracv = fdt_read_uint32_default(fdt, plloff, "frac", 0);
-	}
-
 	value = fracv << RCC_PLLNFRACR_FRACV_SHIFT;
 	value |= RCC_PLLNFRACR_FRACLE;
 	if (mmio_read_32(rcc_base + pll->pllxfracr) != value) {
@@ -1460,8 +1813,8 @@ static int stm32mp1_pll_output(enum stm32mp1_pll_id pll_id, uint32_t output)
 	/* Wait PLL lock */
 	while ((mmio_read_32(pllxcr) & RCC_PLLNCR_PLLRDY) == 0U) {
 		if (timeout_elapsed(timeout)) {
-			ERROR("PLL%d start failed @ 0x%lx: 0x%x\n",
-			      pll_id, pllxcr, mmio_read_32(pllxcr));
+			EARLY_ERROR("PLL%u start failed @ 0x%lx: 0x%x\n",
+				    pll_id, pllxcr, mmio_read_32(pllxcr));
 			return -ETIMEDOUT;
 		}
 	}
@@ -1489,8 +1842,8 @@ static int stm32mp1_pll_stop(enum stm32mp1_pll_id pll_id)
 	/* Wait PLL stopped */
 	while ((mmio_read_32(pllxcr) & RCC_PLLNCR_PLLRDY) != 0U) {
 		if (timeout_elapsed(timeout)) {
-			ERROR("PLL%d stop failed @ 0x%lx: 0x%x\n",
-			      pll_id, pllxcr, mmio_read_32(pllxcr));
+			EARLY_ERROR("PLL%u stop failed @ 0x%lx: 0x%x\n",
+				    pll_id, pllxcr, mmio_read_32(pllxcr));
 			return -ETIMEDOUT;
 		}
 	}
@@ -1582,200 +1935,270 @@ static void stm32mp1_pll_csg(enum stm32mp1_pll_id pll_id, uint32_t *csg)
 			RCC_PLLNCR_SSCG_CTRL);
 }
 
-static int stm32mp1_set_clksrc(unsigned int clksrc)
+static int clk_compute_pll1_settings(unsigned long input_freq,
+				     uint32_t freq_khz,
+				     uint32_t *pllcfg, uint32_t *fracv)
 {
-	uintptr_t clksrc_address = stm32mp_rcc_base() + (clksrc >> 4);
-	uint64_t timeout;
+	unsigned long long best_diff = ULLONG_MAX;
+	unsigned int divm;
 
-	mmio_clrsetbits_32(clksrc_address, RCC_SELR_SRC_MASK,
-			   clksrc & RCC_SELR_SRC_MASK);
+	/* Following parameters have always the same value */
+	pllcfg[PLLCFG_Q] = 0U;
+	pllcfg[PLLCFG_R] = 0U;
+	pllcfg[PLLCFG_O] = PQR(1, 0, 0);
 
-	timeout = timeout_init_us(CLKSRC_TIMEOUT);
-	while ((mmio_read_32(clksrc_address) & RCC_SELR_SRCRDY) == 0U) {
-		if (timeout_elapsed(timeout)) {
-			ERROR("CLKSRC %x start failed @ 0x%lx: 0x%x\n", clksrc,
-			      clksrc_address, mmio_read_32(clksrc_address));
-			return -ETIMEDOUT;
+	for (divm = (DIVM_MAX + 1U); divm != DIVM_MIN; divm--) {
+		unsigned long post_divm = input_freq / divm;
+		unsigned int divp;
+
+		if ((post_divm < POST_DIVM_MIN) || (post_divm > POST_DIVM_MAX)) {
+			continue;
+		}
+
+		for (divp = DIVP_MIN; divp <= DIVP_MAX; divp++) {
+			unsigned long long output_freq = freq_khz * 1000ULL;
+			unsigned long long freq;
+			unsigned long long divn;
+			unsigned long long frac;
+			unsigned int i;
+
+			freq = output_freq * divm * (divp + 1U);
+
+			divn = (freq / input_freq) - 1U;
+			if ((divn < DIVN_MIN) || (divn > DIVN_MAX)) {
+				continue;
+			}
+
+			frac = ((freq * FRAC_MAX) / input_freq) - ((divn + 1U) * FRAC_MAX);
+
+			/* 2 loops to refine the fractional part */
+			for (i = 2U; i != 0U; i--) {
+				unsigned long long diff;
+				unsigned long long vco;
+
+				if (frac > FRAC_MAX) {
+					break;
+				}
+
+				vco = (post_divm * (divn + 1U)) + ((post_divm * frac) / FRAC_MAX);
+
+				if ((vco < (VCO_MIN / 2U)) || (vco > (VCO_MAX / 2U))) {
+					frac++;
+					continue;
+				}
+
+				freq = vco / (divp + 1U);
+				if (output_freq < freq) {
+					diff = freq - output_freq;
+				} else {
+					diff = output_freq - freq;
+				}
+
+				if (diff < best_diff)  {
+					pllcfg[PLLCFG_M] = divm - 1U;
+					pllcfg[PLLCFG_N] = (uint32_t)divn;
+					pllcfg[PLLCFG_P] = divp;
+					*fracv = (uint32_t)frac;
+
+					if (diff == 0U) {
+						return 0;
+					}
+
+					best_diff = diff;
+				}
+
+				frac++;
+			}
+		}
+	}
+
+	if (best_diff == ULLONG_MAX) {
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+static int clk_get_pll1_settings(uint32_t clksrc, uint32_t freq_khz,
+				 uint32_t *pllcfg, uint32_t *fracv)
+{
+	unsigned long input_freq = 0UL;
+
+	assert(pllcfg != NULL);
+	assert(fracv != NULL);
+
+	switch (clksrc) {
+	case CLK_PLL12_HSI:
+		input_freq = stm32mp_clk_get_rate(CK_HSI);
+		break;
+	case CLK_PLL12_HSE:
+		input_freq = stm32mp_clk_get_rate(CK_HSE);
+		break;
+	default:
+		break;
+	}
+
+	if (input_freq == 0UL) {
+		panic();
+	}
+
+	return clk_compute_pll1_settings(input_freq, freq_khz, pllcfg, fracv);
+}
+
+static int stm32_clk_dividers_configure(struct stm32_clk_priv *priv)
+{
+	struct stm32_clk_platdata *pdata = priv->pdata;
+	uint32_t i;
+
+	for (i = 0U; i < pdata->nclkdiv; i++) {
+		uint32_t div_id, div_n;
+		uint32_t val;
+		int ret;
+
+		val = pdata->clkdiv[i] & CMD_DATA_MASK;
+		div_id = (val & DIV_ID_MASK) >> DIV_ID_SHIFT;
+		div_n = (val & DIV_DIVN_MASK) >> DIV_DIVN_SHIFT;
+
+		ret = clk_stm32_set_div(priv, div_id, div_n);
+		if (ret != 0) {
+			return ret;
 		}
 	}
 
 	return 0;
 }
 
-static int stm32mp1_set_clkdiv(unsigned int clkdiv, uintptr_t address)
+static int stm32_clk_configure_clk(struct stm32_clk_priv *priv, uint32_t data)
 {
-	uint64_t timeout;
+	uint32_t sel = (data & CLK_SEL_MASK) >> CLK_SEL_SHIFT;
+	uint32_t enable = (data & CLK_ON_MASK) >> CLK_ON_SHIFT;
+	unsigned long binding_id = ((unsigned long)data & CLK_ID_MASK) >> CLK_ID_SHIFT;
+	struct stm32_clk_platdata *pdata = priv->pdata;
 
-	mmio_clrsetbits_32(address, RCC_DIVR_DIV_MASK,
-			   clkdiv & RCC_DIVR_DIV_MASK);
+	if (binding_id == RTC) {
+		uintptr_t address = stm32mp_rcc_base() + RCC_BDCR;
 
-	timeout = timeout_init_us(CLKDIV_TIMEOUT);
-	while ((mmio_read_32(address) & RCC_DIVR_DIVRDY) == 0U) {
-		if (timeout_elapsed(timeout)) {
-			ERROR("CLKDIV %x start failed @ 0x%lx: 0x%x\n",
-			      clkdiv, address, mmio_read_32(address));
-			return -ETIMEDOUT;
+		if (((mmio_read_32(address) & RCC_BDCR_RTCCKEN) == 0U) || (enable != 0U)) {
+			mmio_clrsetbits_32(address, RCC_BDCR_RTCSRC_MASK,
+					   (sel & RCC_SELR_SRC_MASK) << RCC_BDCR_RTCSRC_SHIFT);
+
+			mmio_setbits_32(address, RCC_BDCR_RTCCKEN);
+			/* Configure LSE CSS */
+			if (pdata->lse_css) {
+				mmio_setbits_32(priv->base + RCC_BDCR, RCC_BDCR_LSECSSON);
+			}
 		}
 	}
 
 	return 0;
 }
 
-static void stm32mp1_mco_csg(uint32_t clksrc, uint32_t clkdiv)
+static int stm32_clk_configure_by_addr_val(struct stm32_clk_priv *priv,
+					   uint32_t data)
 {
-	uintptr_t clksrc_address = stm32mp_rcc_base() + (clksrc >> 4);
+	uint32_t addr = data >> CLK_ADDR_SHIFT;
+	uint32_t val = data & CLK_ADDR_VAL_MASK;
+
+	mmio_setbits_32(priv->base + addr, val);
+
+	return 0;
+}
+
+static int stm32_clk_source_configure(struct stm32_clk_priv *priv)
+{
+	struct stm32_clk_platdata *pdata = priv->pdata;
+	bool ckper_disabled = false;
+	uint32_t i;
+
+	for (i = 0U; i < pdata->nclksrc; i++) {
+		uint32_t val = pdata->clksrc[i];
+		uint32_t cmd, cmd_data;
+		int ret;
+
+		if (val & CMD_ADDR_BIT) {
+			ret = stm32_clk_configure_by_addr_val(priv, val & ~CMD_ADDR_BIT);
+			if (ret != 0) {
+				return ret;
+			}
+
+			continue;
+		}
+
+		if (val == (uint32_t)CLK_CKPER_DISABLED) {
+			ckper_disabled = true;
+			continue;
+		}
+
+		cmd = (val & CMD_MASK) >> CMD_SHIFT;
+		cmd_data = val & ~CMD_MASK;
+
+		switch (cmd) {
+		case CMD_MUX:
+			ret = stm32_clk_configure_mux(priv, cmd_data);
+			break;
+
+		case CMD_CLK:
+			ret = stm32_clk_configure_clk(priv, cmd_data);
+			break;
+		default:
+			ret = -EINVAL;
+			break;
+		}
+
+		if (ret != 0) {
+			return ret;
+		}
+	}
 
 	/*
-	 * Binding clksrc :
-	 *      bit15-4 offset
-	 *      bit3:   disable
-	 *      bit2-0: MCOSEL[2:0]
+	 * CKPER is source for some peripheral clocks
+	 * (FMC-NAND / QPSI-NOR) and switching source is allowed
+	 * only if previous clock is still ON
+	 * => deactivate CKPER only after switching clock
 	 */
-	if ((clksrc & 0x8U) != 0U) {
-		mmio_clrbits_32(clksrc_address, RCC_MCOCFG_MCOON);
-	} else {
-		mmio_clrsetbits_32(clksrc_address,
-				   RCC_MCOCFG_MCOSRC_MASK,
-				   clksrc & RCC_MCOCFG_MCOSRC_MASK);
-		mmio_clrsetbits_32(clksrc_address,
-				   RCC_MCOCFG_MCODIV_MASK,
-				   clkdiv << RCC_MCOCFG_MCODIV_SHIFT);
-		mmio_setbits_32(clksrc_address, RCC_MCOCFG_MCOON);
+	if (!ckper_disabled) {
+		return 0;
 	}
+
+	return stm32_clk_configure_mux(priv, CLK_CKPER_DISABLED);
 }
 
-static void stm32mp1_set_rtcsrc(unsigned int clksrc, bool lse_css)
+static int stm32mp1_pll_configure_src(struct stm32_clk_priv *priv, int pll_idx)
 {
-	uintptr_t address = stm32mp_rcc_base() + RCC_BDCR;
+	struct stm32_clk_platdata *pdata = priv->pdata;
+	struct stm32_pll_dt_cfg *pll_conf = &pdata->pll[pll_idx];
 
-	if (((mmio_read_32(address) & RCC_BDCR_RTCCKEN) == 0U) ||
-	    (clksrc != (uint32_t)CLK_RTC_DISABLED)) {
-		mmio_clrsetbits_32(address,
-				   RCC_BDCR_RTCSRC_MASK,
-				   clksrc << RCC_BDCR_RTCSRC_SHIFT);
-
-		mmio_setbits_32(address, RCC_BDCR_RTCCKEN);
+	if (!pll_conf->status) {
+		return 0;
 	}
 
-	if (lse_css) {
-		mmio_setbits_32(address, RCC_BDCR_LSECSSON);
-	}
-}
-
-static void stm32mp1_stgen_config(void)
-{
-	uint32_t cntfid0;
-	unsigned long rate;
-	unsigned long long counter;
-
-	cntfid0 = mmio_read_32(STGEN_BASE + CNTFID_OFF);
-	rate = get_clock_rate(stm32mp1_clk_get_parent(STGEN_K));
-
-	if (cntfid0 == rate) {
-		return;
-	}
-
-	mmio_clrbits_32(STGEN_BASE + CNTCR_OFF, CNTCR_EN);
-	counter = (unsigned long long)mmio_read_32(STGEN_BASE + CNTCVL_OFF);
-	counter |= ((unsigned long long)mmio_read_32(STGEN_BASE + CNTCVU_OFF)) << 32;
-	counter = (counter * rate / cntfid0);
-
-	mmio_write_32(STGEN_BASE + CNTCVL_OFF, (uint32_t)counter);
-	mmio_write_32(STGEN_BASE + CNTCVU_OFF, (uint32_t)(counter >> 32));
-	mmio_write_32(STGEN_BASE + CNTFID_OFF, rate);
-	mmio_setbits_32(STGEN_BASE + CNTCR_OFF, CNTCR_EN);
-
-	write_cntfrq((u_register_t)rate);
-
-	/* Need to update timer with new frequency */
-	generic_delay_timer_init();
-}
-
-void stm32mp1_stgen_increment(unsigned long long offset_in_ms)
-{
-	unsigned long long cnt;
-
-	cnt = ((unsigned long long)mmio_read_32(STGEN_BASE + CNTCVU_OFF) << 32) |
-		mmio_read_32(STGEN_BASE + CNTCVL_OFF);
-
-	cnt += (offset_in_ms * mmio_read_32(STGEN_BASE + CNTFID_OFF)) / 1000U;
-
-	mmio_clrbits_32(STGEN_BASE + CNTCR_OFF, CNTCR_EN);
-	mmio_write_32(STGEN_BASE + CNTCVL_OFF, (uint32_t)cnt);
-	mmio_write_32(STGEN_BASE + CNTCVU_OFF, (uint32_t)(cnt >> 32));
-	mmio_setbits_32(STGEN_BASE + CNTCR_OFF, CNTCR_EN);
-}
-
-static void stm32mp1_pkcs_config(uint32_t pkcs)
-{
-	uintptr_t address = stm32mp_rcc_base() + ((pkcs >> 4) & 0xFFFU);
-	uint32_t value = pkcs & 0xFU;
-	uint32_t mask = 0xFU;
-
-	if ((pkcs & BIT(31)) != 0U) {
-		mask <<= 4;
-		value <<= 4;
-	}
-
-	mmio_clrsetbits_32(address, mask, value);
+	return stm32_clk_configure_mux(priv, pll_conf->src);
 }
 
 int stm32mp1_clk_init(void)
 {
-	uintptr_t rcc_base = stm32mp_rcc_base();
-	unsigned int clksrc[CLKSRC_NB];
-	unsigned int clkdiv[CLKDIV_NB];
-	unsigned int pllcfg[_PLL_NB][PLLCFG_NB];
-	int plloff[_PLL_NB];
-	int ret, len;
+	struct stm32_clk_priv *priv = clk_stm32_get_priv();
+	struct stm32_clk_platdata *pdata = priv->pdata;
+	struct stm32_pll_dt_cfg *pll_conf = pdata->pll;
+	int ret;
 	enum stm32mp1_pll_id i;
-	bool lse_css = false;
 	bool pll3_preserve = false;
 	bool pll4_preserve = false;
 	bool pll4_bootrom = false;
-	const fdt32_t *pkcs_cell;
-	void *fdt;
+	int stgen_p = stm32mp1_clk_get_parent(STGEN_K);
+	int usbphy_p = stm32mp1_clk_get_parent(USBPHY_K);
+	uint32_t usbreg_bootrom = 0U;
 
-	if (fdt_get_address(&fdt) == 0) {
-		return false;
-	}
-
-	/* Check status field to disable security */
-	if (!fdt_get_rcc_secure_status()) {
-		mmio_write_32(rcc_base + RCC_TZCR, 0);
-	}
-
-	ret = fdt_rcc_read_uint32_array("st,clksrc", (uint32_t)CLKSRC_NB,
-					clksrc);
-	if (ret < 0) {
-		return -FDT_ERR_NOTFOUND;
-	}
-
-	ret = fdt_rcc_read_uint32_array("st,clkdiv", (uint32_t)CLKDIV_NB,
-					clkdiv);
-	if (ret < 0) {
-		return -FDT_ERR_NOTFOUND;
-	}
-
-	for (i = (enum stm32mp1_pll_id)0; i < _PLL_NB; i++) {
-		char name[12];
-
-		snprintf(name, sizeof(name), "st,pll@%d", i);
-		plloff[i] = fdt_rcc_subnode_offset(name);
-
-		if (!fdt_check_node(plloff[i])) {
-			continue;
+	if (!pll_conf[_PLL1].status) {
+		ret = clk_get_pll1_settings(pll_conf[_PLL2].src, PLL1_NOMINAL_FREQ_IN_KHZ,
+					    pll_conf[_PLL1].cfg, &pll_conf[_PLL1].frac);
+		if (ret != 0) {
+			return ret;
 		}
 
-		ret = fdt_read_uint32_array(fdt, plloff[i], "cfg",
-					    (int)PLLCFG_NB, pllcfg[i]);
-		if (ret < 0) {
-			return -FDT_ERR_NOTFOUND;
-		}
+		pll_conf[_PLL1].status = true;
+		pll_conf[_PLL1].src = pll_conf[_PLL2].src;
 	}
-
-	stm32mp1_mco_csg(clksrc[CLKSRC_MCO1], clkdiv[CLKDIV_MCO1]);
-	stm32mp1_mco_csg(clksrc[CLKSRC_MCO2], clkdiv[CLKDIV_MCO2]);
 
 	/*
 	 * Switch ON oscillator found in device-tree.
@@ -1785,22 +2208,24 @@ int stm32mp1_clk_init(void)
 		stm32mp1_lsi_set(true);
 	}
 	if (stm32mp1_osc[_LSE] != 0U) {
+		const char *name = stm32mp_osc_node_label[_LSE];
 		bool bypass, digbyp;
 		uint32_t lsedrv;
 
-		bypass = fdt_osc_read_bool(_LSE, "st,bypass");
-		digbyp = fdt_osc_read_bool(_LSE, "st,digbypass");
-		lse_css = fdt_osc_read_bool(_LSE, "st,css");
-		lsedrv = fdt_osc_read_uint32_default(_LSE, "st,drive",
+		bypass = fdt_clk_read_bool(name, "st,bypass");
+		digbyp = fdt_clk_read_bool(name, "st,digbypass");
+		pdata->lse_css = fdt_clk_read_bool(name, "st,css");
+		lsedrv = fdt_clk_read_uint32_default(name, "st,drive",
 						     LSEDRV_MEDIUM_HIGH);
 		stm32mp1_lse_enable(bypass, digbyp, lsedrv);
 	}
 	if (stm32mp1_osc[_HSE] != 0U) {
+		const char *name = stm32mp_osc_node_label[_HSE];
 		bool bypass, digbyp, css;
 
-		bypass = fdt_osc_read_bool(_HSE, "st,bypass");
-		digbyp = fdt_osc_read_bool(_HSE, "st,digbypass");
-		css = fdt_osc_read_bool(_HSE, "st,css");
+		bypass = fdt_clk_read_bool(name, "st,bypass");
+		digbyp = fdt_clk_read_bool(name, "st,digbypass");
+		css = fdt_clk_read_bool(name, "st,css");
 		stm32mp1_hse_enable(bypass, digbyp, css);
 	}
 	/*
@@ -1810,29 +2235,35 @@ int stm32mp1_clk_init(void)
 	stm32mp1_csi_set(true);
 
 	/* Come back to HSI */
-	ret = stm32mp1_set_clksrc(CLK_MPU_HSI);
+	ret = stm32_clk_configure_mux(priv, CLK_MPU_HSI);
 	if (ret != 0) {
 		return ret;
 	}
-	ret = stm32mp1_set_clksrc(CLK_AXI_HSI);
+	ret = stm32_clk_configure_mux(priv, CLK_AXI_HSI);
 	if (ret != 0) {
 		return ret;
 	}
-	ret = stm32mp1_set_clksrc(CLK_MCU_HSI);
+	ret = stm32_clk_configure_mux(priv, CLK_MCU_HSI);
 	if (ret != 0) {
 		return ret;
 	}
-
-	if ((mmio_read_32(rcc_base + RCC_MP_RSTSCLRR) &
+	if ((mmio_read_32(priv->base + RCC_MP_RSTSCLRR) &
 	     RCC_MP_RSTSCLRR_MPUP0RSTF) != 0) {
 		pll3_preserve = stm32mp1_check_pll_conf(_PLL3,
-							clksrc[CLKSRC_PLL3],
-							pllcfg[_PLL3],
-							plloff[_PLL3]);
+							pll_conf[_PLL3].src,
+							pll_conf[_PLL3].cfg,
+							pll_conf[_PLL3].frac);
 		pll4_preserve = stm32mp1_check_pll_conf(_PLL4,
-							clksrc[CLKSRC_PLL4],
-							pllcfg[_PLL4],
-							plloff[_PLL4]);
+							pll_conf[_PLL4].src,
+							pll_conf[_PLL4].cfg,
+							pll_conf[_PLL4].frac);
+	}
+	/* Don't initialize PLL4, when used by BOOTROM */
+	if ((stm32mp_get_boot_itf_selected() ==
+	     BOOT_API_CTX_BOOT_INTERFACE_SEL_SERIAL_USB) &&
+	    ((stgen_p == (int)_PLL4_R) || (usbphy_p == (int)_PLL4_R))) {
+		pll4_bootrom = true;
+		pll4_preserve = true;
 	}
 
 	for (i = (enum stm32mp1_pll_id)0; i < _PLL_NB; i++) {
@@ -1853,61 +2284,31 @@ int stm32mp1_clk_init(void)
 		if (ret != 0) {
 			return ret;
 		}
-		stm32mp1_stgen_config();
+
+		stm32mp_stgen_config(stm32mp_clk_get_rate(STGEN_K));
 	}
 
-	/* Select DIV */
-	/* No ready bit when MPUSRC != CLK_MPU_PLL1P_DIV, MPUDIV is disabled */
-	mmio_write_32(rcc_base + RCC_MPCKDIVR,
-		      clkdiv[CLKDIV_MPU] & RCC_DIVR_DIV_MASK);
-	ret = stm32mp1_set_clkdiv(clkdiv[CLKDIV_AXI], rcc_base + RCC_AXIDIVR);
+	/* Configure dividers */
+	ret = stm32_clk_dividers_configure(priv);
 	if (ret != 0) {
 		return ret;
 	}
-	ret = stm32mp1_set_clkdiv(clkdiv[CLKDIV_APB4], rcc_base + RCC_APB4DIVR);
-	if (ret != 0) {
-		return ret;
-	}
-	ret = stm32mp1_set_clkdiv(clkdiv[CLKDIV_APB5], rcc_base + RCC_APB5DIVR);
-	if (ret != 0) {
-		return ret;
-	}
-	ret = stm32mp1_set_clkdiv(clkdiv[CLKDIV_MCU], rcc_base + RCC_MCUDIVR);
-	if (ret != 0) {
-		return ret;
-	}
-	ret = stm32mp1_set_clkdiv(clkdiv[CLKDIV_APB1], rcc_base + RCC_APB1DIVR);
-	if (ret != 0) {
-		return ret;
-	}
-	ret = stm32mp1_set_clkdiv(clkdiv[CLKDIV_APB2], rcc_base + RCC_APB2DIVR);
-	if (ret != 0) {
-		return ret;
-	}
-	ret = stm32mp1_set_clkdiv(clkdiv[CLKDIV_APB3], rcc_base + RCC_APB3DIVR);
-	if (ret != 0) {
-		return ret;
-	}
-
-	/* No ready bit for RTC */
-	mmio_write_32(rcc_base + RCC_RTCDIVR,
-		      clkdiv[CLKDIV_RTC] & RCC_DIVR_DIV_MASK);
 
 	/* Configure PLLs source */
-	ret = stm32mp1_set_clksrc(clksrc[CLKSRC_PLL12]);
+	ret = stm32mp1_pll_configure_src(priv, _PLL1);
 	if (ret != 0) {
 		return ret;
 	}
 
 	if (!pll3_preserve) {
-		ret = stm32mp1_set_clksrc(clksrc[CLKSRC_PLL3]);
+		ret = stm32mp1_pll_configure_src(priv, _PLL3);
 		if (ret != 0) {
 			return ret;
 		}
 	}
 
 	if (!pll4_preserve) {
-		ret = stm32mp1_set_clksrc(clksrc[CLKSRC_PLL4]);
+		ret = stm32mp1_pll_configure_src(priv, _PLL4);
 		if (ret != 0) {
 			return ret;
 		}
@@ -1915,47 +2316,39 @@ int stm32mp1_clk_init(void)
 
 	/* Configure and start PLLs */
 	for (i = (enum stm32mp1_pll_id)0; i < _PLL_NB; i++) {
-		uint32_t fracv;
-		uint32_t csg[PLLCSG_NB];
-
 		if (((i == _PLL3) && pll3_preserve) ||
 		    ((i == _PLL4) && pll4_preserve && !pll4_bootrom)) {
 			continue;
 		}
 
-		if (!fdt_check_node(plloff[i])) {
+		if (!pll_conf[i].status) {
 			continue;
 		}
 
 		if ((i == _PLL4) && pll4_bootrom) {
 			/* Set output divider if not done by the Bootrom */
-			stm32mp1_pll_config_output(i, pllcfg[i]);
+			stm32mp1_pll_config_output(i, pll_conf[i].cfg);
 			continue;
 		}
 
-		fracv = fdt_read_uint32_default(fdt, plloff[i], "frac", 0);
-
-		ret = stm32mp1_pll_config(i, pllcfg[i], fracv);
+		ret = stm32mp1_pll_config(i, pll_conf[i].cfg, pll_conf[i].frac);
 		if (ret != 0) {
 			return ret;
 		}
-		ret = fdt_read_uint32_array(fdt, plloff[i], "csg",
-					    (uint32_t)PLLCSG_NB, csg);
-		if (ret == 0) {
-			stm32mp1_pll_csg(i, csg);
-		} else if (ret != -FDT_ERR_NOTFOUND) {
-			return ret;
+
+		if (pll_conf[i].csg_enabled) {
+			stm32mp1_pll_csg(i, pll_conf[i].csg);
 		}
 
 		stm32mp1_pll_start(i);
 	}
-	/* Wait and start PLLs ouptut when ready */
+	/* Wait and start PLLs output when ready */
 	for (i = (enum stm32mp1_pll_id)0; i < _PLL_NB; i++) {
-		if (!fdt_check_node(plloff[i])) {
+		if (!pll_conf[i].status) {
 			continue;
 		}
 
-		ret = stm32mp1_pll_output(i, pllcfg[i][PLLCFG_O]);
+		ret = stm32mp1_pll_output(i, pll_conf[i].cfg[PLLCFG_O]);
 		if (ret != 0) {
 			return ret;
 		}
@@ -1965,45 +2358,32 @@ int stm32mp1_clk_init(void)
 		stm32mp1_lse_wait();
 	}
 
+	if (pll4_bootrom) {
+		usbreg_bootrom = mmio_read_32(priv->base + RCC_USBCKSELR);
+	}
+
 	/* Configure with expected clock source */
-	ret = stm32mp1_set_clksrc(clksrc[CLKSRC_MPU]);
+	ret = stm32_clk_source_configure(priv);
 	if (ret != 0) {
-		return ret;
+		panic();
 	}
-	ret = stm32mp1_set_clksrc(clksrc[CLKSRC_AXI]);
-	if (ret != 0) {
-		return ret;
-	}
-	ret = stm32mp1_set_clksrc(clksrc[CLKSRC_MCU]);
-	if (ret != 0) {
-		return ret;
-	}
-	stm32mp1_set_rtcsrc(clksrc[CLKSRC_RTC], lse_css);
 
-	/* Configure PKCK */
-	pkcs_cell = fdt_rcc_read_prop("st,pkcs", &len);
-	if (pkcs_cell != NULL) {
-		bool ckper_disabled = false;
-		uint32_t j;
+	if (pll4_bootrom) {
+		uint32_t usbreg_value, usbreg_mask;
+		const struct stm32mp1_clk_sel *sel;
 
-		for (j = 0; j < ((uint32_t)len / sizeof(uint32_t)); j++) {
-			uint32_t pkcs = fdt32_to_cpu(pkcs_cell[j]);
+		sel = clk_sel_ref(_USBPHY_SEL);
+		usbreg_mask = (uint32_t)sel->msk << sel->src;
+		sel = clk_sel_ref(_USBO_SEL);
+		usbreg_mask |= (uint32_t)sel->msk << sel->src;
 
-			if (pkcs == (uint32_t)CLK_CKPER_DISABLED) {
-				ckper_disabled = true;
-				continue;
-			}
-			stm32mp1_pkcs_config(pkcs);
-		}
-
-		/*
-		 * CKPER is source for some peripheral clocks
-		 * (FMC-NAND / QPSI-NOR) and switching source is allowed
-		 * only if previous clock is still ON
-		 * => deactivated CKPER only after switching clock
-		 */
-		if (ckper_disabled) {
-			stm32mp1_pkcs_config(CLK_CKPER_DISABLED);
+		usbreg_value = mmio_read_32(priv->base + RCC_USBCKSELR) &
+			       usbreg_mask;
+		usbreg_bootrom &= usbreg_mask;
+		if (usbreg_bootrom != usbreg_value) {
+			EARLY_ERROR("forbidden new USB clk path\n");
+			EARLY_ERROR("vs bootrom on USB boot\n");
+			return -FDT_ERR_BADVALUE;
 		}
 	}
 
@@ -2011,10 +2391,11 @@ int stm32mp1_clk_init(void)
 	if (stm32mp1_osc[_HSI] == 0U) {
 		stm32mp1_hsi_set(false);
 	}
-	stm32mp1_stgen_config();
+
+	stm32mp_stgen_config(stm32mp_clk_get_rate(STGEN_K));
 
 	/* Software Self-Refresh mode (SSR) during DDR initilialization */
-	mmio_clrsetbits_32(rcc_base + RCC_DDRITFCR,
+	mmio_clrsetbits_32(priv->base + RCC_DDRITFCR,
 			   RCC_DDRITFCR_DDRCKMOD_MASK,
 			   RCC_DDRITFCR_DDRCKMOD_SSR <<
 			   RCC_DDRITFCR_DDRCKMOD_SHIFT);
@@ -2152,6 +2533,7 @@ static void secure_parent_clocks(unsigned long parent_id)
 	case _HSE:
 	case _HSE_KER:
 	case _HSE_KER_DIV2:
+	case _HSE_RTC:
 	case _LSE:
 		break;
 
@@ -2200,6 +2582,17 @@ void stm32mp1_register_clock_parents_secure(unsigned long clock_id)
 }
 #endif /* STM32MP_SHARED_RESOURCES */
 
+void stm32mp1_clk_mcuss_protect(bool enable)
+{
+	uintptr_t rcc_base = stm32mp_rcc_base();
+
+	if (enable) {
+		mmio_setbits_32(rcc_base + RCC_TZCR, RCC_TZCR_MCKPROT);
+	} else {
+		mmio_clrbits_32(rcc_base + RCC_TZCR, RCC_TZCR_MCKPROT);
+	}
+}
+
 static void sync_earlyboot_clocks_state(void)
 {
 	unsigned int idx;
@@ -2210,6 +2603,7 @@ static void sync_earlyboot_clocks_state(void)
 		DDRC2, DDRC2LP,
 		DDRCAPB, DDRPHYCAPB, DDRPHYCAPBLP,
 		DDRPHYC, DDRPHYCLP,
+		RTCAPB,
 		TZC1, TZC2,
 		TZPC,
 		STGEN_K,
@@ -2218,17 +2612,230 @@ static void sync_earlyboot_clocks_state(void)
 	for (idx = 0U; idx < ARRAY_SIZE(secure_enable); idx++) {
 		stm32mp_clk_enable(secure_enable[idx]);
 	}
+}
 
-	if (!stm32mp_is_single_core()) {
-		stm32mp1_clk_enable_secure(RTCAPB);
+static const struct clk_ops stm32mp_clk_ops = {
+	.enable		= stm32mp_clk_enable,
+	.disable	= stm32mp_clk_disable,
+	.is_enabled	= stm32mp_clk_is_enabled,
+	.get_rate	= stm32mp_clk_get_rate,
+	.get_parent	= stm32mp1_clk_get_parent,
+};
+
+struct stm32_pll_dt_cfg mp15_pll[_PLL_NB];
+uint32_t mp15_clksrc[MUX_NB];
+uint32_t mp15_clkdiv[DIV_NB];
+
+struct stm32_clk_platdata stm32mp15_clock_pdata = {
+	.pll		= mp15_pll,
+	.npll		= _PLL_NB,
+	.clksrc		= mp15_clksrc,
+	.nclksrc	= MUX_NB,
+	.clkdiv		= mp15_clkdiv,
+	.nclkdiv	= DIV_NB,
+};
+
+static struct stm32_clk_priv stm32mp15_clock_data = {
+	.base		= RCC_BASE,
+	.parents	= parent_mp15,
+	.nb_parents	= ARRAY_SIZE(parent_mp15),
+	.div		= dividers_mp15,
+	.nb_div		= ARRAY_SIZE(dividers_mp15),
+	.pdata		= &stm32mp15_clock_pdata,
+};
+
+static int stm32_clk_parse_fdt_by_name(void *fdt, int node, const char *name,
+				       uint32_t *tab, uint32_t *nb)
+{
+	const fdt32_t *cell;
+	int len = 0;
+	uint32_t i;
+
+	cell = fdt_getprop(fdt, node, name, &len);
+	if (cell == NULL) {
+		*nb = 0U;
+		return 0;
 	}
+
+	for (i = 0U; i < ((uint32_t)len / sizeof(uint32_t)); i++) {
+		tab[i] = fdt32_to_cpu(cell[i]);
+	}
+
+	*nb = (uint32_t)len / sizeof(uint32_t);
+
+	return 0;
+}
+
+#define RCC_PLL_NAME_SIZE 12
+
+static int clk_stm32_load_vco_config(void *fdt, int subnode, struct stm32_pll_dt_cfg *pll)
+{
+	int err;
+
+	err = fdt_read_uint32_array(fdt, subnode, "divmn", (int)PLL_DIV_MN_NB, &pll->cfg[PLLCFG_M]);
+	if (err != 0) {
+		return err;
+	}
+
+	err = fdt_read_uint32_array(fdt, subnode, "csg", (int)PLLCSG_NB, pll->csg);
+	if (err == 0) {
+		pll->csg_enabled = true;
+	} else if (err == -FDT_ERR_NOTFOUND) {
+		pll->csg_enabled = false;
+	} else {
+		return err;
+	}
+
+	pll->status = true;
+
+	pll->frac = fdt_read_uint32_default(fdt, subnode, "frac", 0);
+
+	pll->src = fdt_read_uint32_default(fdt, subnode, "src", UINT32_MAX);
+
+	return 0;
+}
+
+static int clk_stm32_load_output_config(void *fdt, int subnode, struct stm32_pll_dt_cfg *pll)
+{
+	int err;
+
+	err = fdt_read_uint32_array(fdt, subnode, "st,pll_div_pqr", (int)PLL_DIV_PQR_NB,
+				    &pll->cfg[PLLCFG_P]);
+	if (err != 0) {
+		return err;
+	}
+
+	pll->cfg[PLLCFG_O] = PQR(1, 1, 1);
+
+	return 0;
+}
+
+static int clk_stm32_parse_pll_fdt(void *fdt, int subnode, struct stm32_pll_dt_cfg *pll)
+{
+	const fdt32_t *cuint;
+	int subnode_pll;
+	int subnode_vco;
+	int err;
+
+	cuint = fdt_getprop(fdt, subnode, "st,pll", NULL);
+	if (cuint == NULL) {
+		/* Case of no pll is defined */
+		return 0;
+	}
+
+	subnode_pll = fdt_node_offset_by_phandle(fdt, fdt32_to_cpu(*cuint));
+	if (subnode_pll < 0) {
+		return -FDT_ERR_NOTFOUND;
+	}
+
+	cuint = fdt_getprop(fdt, subnode_pll, "st,pll_vco", NULL);
+	if (cuint == NULL) {
+		return -FDT_ERR_NOTFOUND;
+	}
+
+	subnode_vco = fdt_node_offset_by_phandle(fdt, fdt32_to_cpu(*cuint));
+	if (subnode_vco < 0) {
+		return -FDT_ERR_NOTFOUND;
+	}
+
+	err = clk_stm32_load_vco_config(fdt, subnode_vco, pll);
+	if (err != 0) {
+		return err;
+	}
+
+	err = clk_stm32_load_output_config(fdt, subnode_pll, pll);
+	if (err != 0) {
+		return err;
+	}
+
+	return 0;
+}
+
+static int stm32_clk_parse_fdt_all_pll(void *fdt, int node, struct stm32_clk_platdata *pdata)
+{
+	size_t i = 0U;
+
+	for (i = _PLL1; i < pdata->npll; i++) {
+		struct stm32_pll_dt_cfg *pll = pdata->pll + i;
+		char name[RCC_PLL_NAME_SIZE];
+		int subnode;
+		int err;
+
+		snprintf(name, sizeof(name), "st,pll@%u", i);
+
+		subnode = fdt_subnode_offset(fdt, node, name);
+		if (!fdt_check_node(subnode)) {
+			continue;
+		}
+
+		err = clk_stm32_parse_pll_fdt(fdt, subnode, pll);
+		if (err != 0) {
+			panic();
+		}
+	}
+
+	return 0;
+}
+
+static int stm32_clk_parse_fdt(struct stm32_clk_platdata *pdata)
+{
+	void *fdt = NULL;
+	int node;
+	uint32_t err;
+
+	if (fdt_get_address(&fdt) == 0) {
+		return -ENOENT;
+	}
+
+	node = fdt_node_offset_by_compatible(fdt, -1, DT_RCC_CLK_COMPAT);
+	if (node < 0) {
+		panic();
+	}
+
+	err = stm32_clk_parse_fdt_all_pll(fdt, node, pdata);
+	if (err != 0) {
+		return err;
+	}
+
+	err = stm32_clk_parse_fdt_by_name(fdt, node, "st,clkdiv", pdata->clkdiv, &pdata->nclkdiv);
+	if (err != 0) {
+		return err;
+	}
+
+	err = stm32_clk_parse_fdt_by_name(fdt, node, "st,clksrc", pdata->clksrc, &pdata->nclksrc);
+	if (err != 0) {
+		return err;
+	}
+
+	return 0;
 }
 
 int stm32mp1_clk_probe(void)
 {
+	uintptr_t base = RCC_BASE;
+	int ret;
+
+#if defined(IMAGE_BL32)
+	if (!fdt_get_rcc_secure_state()) {
+		mmio_write_32(stm32mp_rcc_base() + RCC_TZCR, 0U);
+	}
+#endif
+
 	stm32mp1_osc_init();
 
+	ret = stm32_clk_parse_fdt(&stm32mp15_clock_pdata);
+	if (ret != 0) {
+		return ret;
+	}
+
+	ret = clk_stm32_init(&stm32mp15_clock_data, base);
+	if (ret != 0) {
+		return ret;
+	}
+
 	sync_earlyboot_clocks_state();
+
+	clk_register(&stm32mp_clk_ops);
 
 	return 0;
 }

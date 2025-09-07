@@ -1,8 +1,10 @@
 /*
- * Copyright (c) 2015-2021, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2015-2024, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
+
+#define _POSIX_C_SOURCE 200809L
 
 #include <assert.h>
 #include <ctype.h>
@@ -66,25 +68,17 @@ static int new_keys;
 static int save_keys;
 static int print_cert;
 
-/* Info messages created in the Makefile */
-extern const char build_msg[];
-extern const char platform_msg[];
-
-
-static char *strdup(const char *str)
-{
-	int n = strlen(str) + 1;
-	char *dup = malloc(n);
-	if (dup) {
-		strcpy(dup, str);
-	}
-	return dup;
-}
+static const char build_msg[] = "Built : " __TIME__ ", " __DATE__;
+static const char platform_msg[] = PLAT_MSG;
 
 static const char *key_algs_str[] = {
 	[KEY_ALG_RSA] = "rsa",
 #ifndef OPENSSL_NO_EC
-	[KEY_ALG_ECDSA] = "ecdsa"
+	[KEY_ALG_ECDSA_NIST] = "ecdsa",
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+	[KEY_ALG_ECDSA_BRAINPOOL_R] = "ecdsa-brainpool-regular",
+	[KEY_ALG_ECDSA_BRAINPOOL_T] = "ecdsa-brainpool-twisted",
+#endif
 #endif /* OPENSSL_NO_EC */
 };
 
@@ -106,7 +100,7 @@ static void print_help(const char *cmd, const struct option *long_opt)
 
 	printf("\n\n");
 	printf("The certificate generation tool loads the binary images and\n"
-	       "optionally the RSA keys, and outputs the key and content\n"
+	       "optionally the RSA or ECC keys, and outputs the key and content\n"
 	       "certificates properly signed to implement the chain of trust.\n"
 	       "If keys are provided, they must be in PEM format.\n"
 	       "Certificates are generated in DER format.\n");
@@ -176,7 +170,7 @@ static void check_cmd_params(void)
 {
 	cert_t *cert;
 	ext_t *ext;
-	key_t *key;
+	cert_key_t *key;
 	int i, j;
 	bool valid_size;
 
@@ -267,7 +261,12 @@ static const cmd_opt_t common_cmd_opt[] = {
 	},
 	{
 		{ "key-alg", required_argument, NULL, 'a' },
-		"Key algorithm: 'rsa' (default)- RSAPSS scheme as per PKCS#1 v2.1, 'ecdsa'"
+		"Key algorithm: 'rsa' (default)- RSAPSS scheme as per PKCS#1 v2.1, "
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+		"'ecdsa', 'ecdsa-brainpool-regular', 'ecdsa-brainpool-twisted'"
+#else
+		"'ecdsa'"
+#endif
 	},
 	{
 		{ "key-size", required_argument, NULL, 'b' },
@@ -296,7 +295,7 @@ int main(int argc, char *argv[])
 	STACK_OF(X509_EXTENSION) * sk;
 	X509_EXTENSION *cert_ext = NULL;
 	ext_t *ext;
-	key_t *key;
+	cert_key_t *key;
 	cert_t *cert;
 	FILE *file;
 	int i, j, ext_nid, nvctr;
@@ -430,13 +429,16 @@ int main(int argc, char *argv[])
 
 	/* Load private keys from files (or generate new ones) */
 	for (i = 0 ; i < num_keys ; i++) {
+#if !USING_OPENSSL3
 		if (!key_new(&keys[i])) {
 			ERROR("Failed to allocate key container\n");
 			exit(1);
 		}
+#endif
 
 		/* First try to load the key from disk */
-		if (key_load(&keys[i], &err_code)) {
+		err_code = key_load(&keys[i]);
+		if (err_code == KEY_ERR_NONE) {
 			/* Key loaded successfully */
 			continue;
 		}
@@ -594,9 +596,7 @@ int main(int argc, char *argv[])
 	/* If we got here, then we must have filled the key array completely.
 	 * We can then safely call free on all of the keys in the array
 	 */
-	for (i = 0; i < num_keys; i++) {
-		EVP_PKEY_free(keys[i].key);
-	}
+	key_cleanup();
 
 #ifndef OPENSSL_NO_ENGINE
 	ENGINE_cleanup();
@@ -605,30 +605,10 @@ int main(int argc, char *argv[])
 
 
 	/* We allocated strings through strdup, so now we have to free them */
-	for (i = 0; i < num_keys; i++) {
-		if (keys[i].fn != NULL) {
-			void *ptr = keys[i].fn;
 
-			keys[i].fn = NULL;
-			free(ptr);
-		}
-	}
-	for (i = 0; i < num_extensions; i++) {
-		if (extensions[i].arg != NULL) {
-			void *ptr = (void *)extensions[i].arg;
+	ext_cleanup();
 
-			extensions[i].arg = NULL;
-			free(ptr);
-		}
-	}
-	for (i = 0; i < num_certs; i++) {
-		if (certs[i].fn != NULL) {
-			void *ptr = (void *)certs[i].fn;
-
-			certs[i].fn = NULL;
-			free(ptr);
-		}
-	}
+	cert_cleanup();
 
 	return 0;
 }

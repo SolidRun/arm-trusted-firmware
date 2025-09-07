@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2016-2023, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -7,19 +7,16 @@
 #ifndef GPT_H
 #define GPT_H
 
+#include <drivers/partition/efi.h>
 #include <drivers/partition/partition.h>
+#include <tools_share/uuid.h>
 
 #define PARTITION_TYPE_GPT		0xee
-#define GPT_HEADER_OFFSET		PLAT_PARTITION_BLOCK_SIZE
-#define GPT_ENTRY_OFFSET		(GPT_HEADER_OFFSET +		\
-					 PLAT_PARTITION_BLOCK_SIZE)
-#define GUID_LEN			16
-
 #define GPT_SIGNATURE			"EFI PART"
 
 typedef struct gpt_entry {
-	unsigned char		type_uuid[GUID_LEN];
-	unsigned char		unique_uuid[GUID_LEN];
+	struct efi_guid		type_uuid;
+	struct efi_guid		unique_uuid;
 	unsigned long long	first_lba;
 	unsigned long long	last_lba;
 	unsigned long long	attr;
@@ -36,7 +33,7 @@ typedef struct gpt_header {
 	unsigned long long	backup_lba;
 	unsigned long long	first_lba;
 	unsigned long long	last_lba;
-	unsigned char		disk_uuid[16];
+	struct efi_guid		disk_uuid;
 	/* starting LBA of array of partition entries */
 	unsigned long long	part_lba;
 	/* number of partition entries in array */
@@ -44,7 +41,7 @@ typedef struct gpt_header {
 	/* size of a single partition entry (usually 128) */
 	unsigned int		part_size;
 	unsigned int		part_crc;
-} gpt_header_t;
+} __packed gpt_header_t;
 
 int parse_gpt_entry(gpt_entry_t *gpt_entry, partition_entry_t *entry);
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2020, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2015-2025, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -11,8 +11,12 @@
 #include <arch.h>
 #include <bl1/bl1.h>
 #include <common/bl_common.h>
+#include <common/debug.h>
 #include <lib/fconf/fconf.h>
 #include <lib/fconf/fconf_dyn_cfg_getter.h>
+#if TRANSFER_LIST
+#include <lib/transfer_list.h>
+#endif
 #include <lib/utils.h>
 #include <lib/xlat_tables/xlat_tables_compat.h>
 #include <plat/arm/common/plat_arm.h>
@@ -22,14 +26,17 @@
 #pragma weak bl1_early_platform_setup
 #pragma weak bl1_plat_arch_setup
 #pragma weak bl1_plat_sec_mem_layout
+#pragma weak arm_bl1_early_platform_setup
 #pragma weak bl1_plat_prepare_exit
 #pragma weak bl1_plat_get_next_image_id
 #pragma weak plat_arm_bl1_fwu_needed
+#pragma weak arm_bl1_plat_arch_setup
+#pragma weak arm_bl1_platform_setup
 
 #define MAP_BL1_TOTAL		MAP_REGION_FLAT(			\
 					bl1_tzram_layout.total_base,	\
 					bl1_tzram_layout.total_size,	\
-					MT_MEMORY | MT_RW | MT_SECURE)
+					MT_MEMORY | MT_RW | EL3_PAS)
 /*
  * If SEPARATE_CODE_AND_RODATA=1 we define a region for each section
  * otherwise one region is defined containing both
@@ -38,17 +45,17 @@
 #define MAP_BL1_RO		MAP_REGION_FLAT(			\
 					BL_CODE_BASE,			\
 					BL1_CODE_END - BL_CODE_BASE,	\
-					MT_CODE | MT_SECURE),		\
+					MT_CODE | EL3_PAS),		\
 				MAP_REGION_FLAT(			\
 					BL1_RO_DATA_BASE,		\
 					BL1_RO_DATA_END			\
 						- BL_RO_DATA_BASE,	\
-					MT_RO_DATA | MT_SECURE)
+					MT_RO_DATA | EL3_PAS)
 #else
 #define MAP_BL1_RO		MAP_REGION_FLAT(			\
 					BL_CODE_BASE,			\
 					BL1_CODE_END - BL_CODE_BASE,	\
-					MT_CODE | MT_SECURE)
+					MT_CODE | EL3_PAS)
 #endif
 
 /* Data structure which holds the extents of the trusted SRAM for BL1*/
@@ -56,6 +63,8 @@ static meminfo_t bl1_tzram_layout;
 
 /* Boolean variable to hold condition whether firmware update needed or not */
 static bool is_fwu_needed;
+
+struct transfer_list_header *secure_tl;
 
 struct meminfo *bl1_plat_sec_mem_layout(void)
 {
@@ -79,6 +88,12 @@ void arm_bl1_early_platform_setup(void)
 	/* Allow BL1 to see the whole Trusted RAM */
 	bl1_tzram_layout.total_base = ARM_BL_RAM_BASE;
 	bl1_tzram_layout.total_size = ARM_BL_RAM_SIZE;
+
+#if TRANSFER_LIST
+	secure_tl = transfer_list_init((void *)PLAT_ARM_EL3_FW_HANDOFF_BASE,
+					 PLAT_ARM_FW_HANDOFF_SIZE);
+	assert(secure_tl != NULL);
+#endif
 }
 
 void bl1_early_platform_setup(void)
@@ -104,11 +119,8 @@ void bl1_early_platform_setup(void)
  *****************************************************************************/
 void arm_bl1_plat_arch_setup(void)
 {
-#if USE_COHERENT_MEM && !ARM_CRYPTOCELL_INTEG
-	/*
-	 * Ensure ARM platforms don't use coherent memory in BL1 unless
-	 * cryptocell integration is enabled.
-	 */
+#if USE_COHERENT_MEM
+	/* Ensure ARM platforms don't use coherent memory in BL1. */
 	assert((BL_COHERENT_RAM_END - BL_COHERENT_RAM_BASE) == 0U);
 #endif
 
@@ -118,9 +130,6 @@ void arm_bl1_plat_arch_setup(void)
 #if USE_ROMLIB
 		ARM_MAP_ROMLIB_CODE,
 		ARM_MAP_ROMLIB_DATA,
-#endif
-#if ARM_CRYPTOCELL_INTEG
-		ARM_MAP_BL_COHERENT_RAM,
 #endif
 		{0}
 	};
@@ -146,10 +155,14 @@ void bl1_plat_arch_setup(void)
  */
 void arm_bl1_platform_setup(void)
 {
-	const struct dyn_cfg_dtb_info_t *fw_config_info;
+	const struct dyn_cfg_dtb_info_t *config_info __unused;
+	uint32_t fw_config_max_size __unused;
+	image_info_t config_image_info __unused;
+	struct transfer_list_entry *te __unused;
+
 	image_desc_t *desc;
-	uint32_t fw_config_max_size;
-	int err = -1;
+
+	int err __unused = 1;
 
 	/* Initialise the IO layer and register platform IO devices */
 	plat_arm_io_setup();
@@ -161,9 +174,29 @@ void arm_bl1_platform_setup(void)
 		return;
 	}
 
+#if TRANSFER_LIST
+#if CRYPTO_SUPPORT
+	te = transfer_list_add(secure_tl, TL_TAG_MBEDTLS_HEAP_INFO,
+			       sizeof(struct crypto_heap_info), NULL);
+	assert(te != NULL);
+
+	struct crypto_heap_info *heap_info =
+		(struct crypto_heap_info *)transfer_list_entry_data(te);
+	arm_get_mbedtls_heap(&heap_info->addr, &heap_info->size);
+#endif /* CRYPTO_SUPPORT */
+
+	desc = bl1_plat_get_image_desc(BL2_IMAGE_ID);
+
+	/*
+	 * The event log might have been updated prior to this, make sure we have an
+	 * up to date tl before setting the handoff arguments.
+	 */
+	transfer_list_update_checksum(secure_tl);
+	transfer_list_set_handoff_args(secure_tl, &desc->ep_info);
+#else
 	/* Set global DTB info for fixed fw_config information */
 	fw_config_max_size = ARM_FW_CONFIG_LIMIT - ARM_FW_CONFIG_BASE;
-	set_config_info(ARM_FW_CONFIG_BASE, fw_config_max_size, FW_CONFIG_ID);
+	set_config_info(ARM_FW_CONFIG_BASE, ~0UL, fw_config_max_size, FW_CONFIG_ID);
 
 	/* Fill the device tree information struct with the info from the config dtb */
 	err = fconf_load_config(FW_CONFIG_ID);
@@ -176,13 +209,14 @@ void arm_bl1_platform_setup(void)
 	 * FW_CONFIG loaded successfully. If FW_CONFIG device tree parsing
 	 * is successful then load TB_FW_CONFIG device tree.
 	 */
-	fw_config_info = FCONF_GET_PROPERTY(dyn_cfg, dtb, FW_CONFIG_ID);
-	if (fw_config_info != NULL) {
-		err = fconf_populate_dtb_registry(fw_config_info->config_addr);
+	config_info = FCONF_GET_PROPERTY(dyn_cfg, dtb, FW_CONFIG_ID);
+	if (config_info != NULL) {
+		err = fconf_populate_dtb_registry(config_info->config_addr);
 		if (err < 0) {
 			ERROR("Parsing of FW_CONFIG failed %d\n", err);
 			plat_error_handler(err);
 		}
+
 		/* load TB_FW_CONFIG */
 		err = fconf_load_config(TB_FW_CONFIG_ID);
 		if (err < 0) {
@@ -194,15 +228,17 @@ void arm_bl1_platform_setup(void)
 		plat_error_handler(err);
 	}
 
-	/* The BL2 ep_info arg0 is modified to point to FW_CONFIG */
 	desc = bl1_plat_get_image_desc(BL2_IMAGE_ID);
-	assert(desc != NULL);
-	desc->ep_info.args.arg0 = fw_config_info->config_addr;
 
-#if TRUSTED_BOARD_BOOT
+	/* The BL2 ep_info arg0 is modified to point to FW_CONFIG */
+	assert(desc != NULL);
+	desc->ep_info.args.arg0 = config_info->config_addr;
+
+#if CRYPTO_SUPPORT
 	/* Share the Mbed TLS heap info with other images */
 	arm_bl1_set_mbedtls_heap();
-#endif /* TRUSTED_BOARD_BOOT */
+#endif /* CRYPTO_SUPPORT */
+#endif /* TRANSFER_LIST */
 
 	/*
 	 * Allow access to the System counter timer module and program
@@ -252,3 +288,31 @@ unsigned int bl1_plat_get_next_image_id(void)
 {
 	return  is_fwu_needed ? NS_BL1U_IMAGE_ID : BL2_IMAGE_ID;
 }
+
+#if TRANSFER_LIST
+int bl1_plat_handle_post_image_load(unsigned int image_id)
+{
+	struct transfer_list_entry *te;
+
+	if (image_id != BL2_IMAGE_ID) {
+		return 0;
+	}
+
+	/* Convey this information to BL2 via its TL. */
+	te = transfer_list_add(secure_tl, TL_TAG_SRAM_LAYOUT,
+			       sizeof(meminfo_t), NULL);
+	assert(te != NULL);
+
+	bl1_plat_calc_bl2_layout(&bl1_tzram_layout,
+				 (meminfo_t *)transfer_list_entry_data(te));
+
+	transfer_list_update_checksum(secure_tl);
+
+	/**
+	 * Before exiting make sure the contents of the TL are flushed in case there's no
+	 * support for hardware cache coherency.
+	 */
+	flush_dcache_range((uintptr_t)secure_tl, secure_tl->size);
+	return 0;
+}
+#endif /* TRANSFER_LIST*/

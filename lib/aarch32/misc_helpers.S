@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2021, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2016-2021, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -301,9 +301,9 @@ func fixup_gdt_reloc
 	cmp	r4, r6
 	blo	2f
 
-	/* Skip adding offset if address is >= upper limit */
+	/* Skip adding offset if address is > upper limit */
 	cmp	r4, r7
-	bhs	2f
+	bhi	2f
 
 	add 	r4, r0, r4
 	str	r4, [r3]

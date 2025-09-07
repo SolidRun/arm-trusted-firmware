@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2015-2019, ARM Limited and Contributors. All rights reserved.
+# Copyright (c) 2015-2024, Arm Limited and Contributors. All rights reserved.
 # Copyright (c) 2020, NVIDIA Corporation. All rights reserved.
 #
 # SPDX-License-Identifier: BSD-3-Clause
@@ -82,7 +82,7 @@ override LIBC_SRCS :=	$(addprefix lib/libc/,		\
 INCLUDES	+=	-Iinclude/lib/libc		\
 			-Iinclude/lib/libc/$(ARCH)	\
 
-ifneq ($(findstring armlink,$(notdir $(LD))),)
+ifeq ($($(ARCH)-ld-id),arm-link)
 # o suppress warnings for section mismatches, undefined symbols
 # o use only those libraries that are specified in the input file
 #   list to resolve references
@@ -90,8 +90,8 @@ ifneq ($(findstring armlink,$(notdir $(LD))),)
 # o resolve undefined symbols to el3_panic
 # o include only required sections
 TF_LDFLAGS	+= --diag_suppress=L6314,L6332 --no_scanlib --callgraph
-TF_LDFLAGS	+= --keep="*(__pubsub*)" --keep="*(rt_svc_descs*)" --keep="*(*cpu_ops)"
+TF_LDFLAGS	+= --keep="*(.__pubsub*)" --keep="*(.rt_svc_descs*)" --keep="*(.cpu_ops)"
 ifeq (${ENABLE_PMF},1)
-TF_LDFLAGS	+= --keep="*(*pmf_svc_descs*)"
+TF_LDFLAGS	+= --keep="*(.pmf_svc_descs*)"
 endif
 endif

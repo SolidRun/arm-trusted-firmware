@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2017-2025, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -9,137 +9,59 @@
 #include <cortex_a75.h>
 #include <cpuamu.h>
 #include <cpu_macros.S>
+#include <dsu_macros.S>
+
+.global check_erratum_cortex_a75_764081
 
 /* Hardware handled coherency */
 #if HW_ASSISTED_COHERENCY == 0
 #error "Cortex-A75 must be compiled with HW_ASSISTED_COHERENCY enabled"
 #endif
 
-	/* --------------------------------------------------
-	 * Errata Workaround for Cortex A75 Errata #764081.
-	 * This applies only to revision r0p0 of Cortex A75.
-	 * Inputs:
-	 * x0: variant[4:7] and revision[0:3] of current cpu.
-	 * Shall clobber: x0-x17
-	 * --------------------------------------------------
-	 */
-func errata_a75_764081_wa
-	/*
-	 * Compare x0 against revision r0p0
-	 */
-	mov	x17, x30
-	bl	check_errata_764081
-	cbz	x0, 1f
-	mrs	x1, sctlr_el3
-	orr	x1, x1 ,#SCTLR_IESB_BIT
-	msr	sctlr_el3, x1
-	isb
-1:
-	ret	x17
-endfunc errata_a75_764081_wa
+cpu_reset_prologue cortex_a75
 
-func check_errata_764081
-	mov	x1, #0x00
-	b	cpu_rev_var_ls
-endfunc check_errata_764081
+/* Erratum entry and check function for SMCCC_ARCH_WORKAROUND_3 */
+add_erratum_entry cortex_a75, ERRATUM(ARCH_WORKAROUND_3), WORKAROUND_CVE_2022_23960
 
-	/* --------------------------------------------------
-	 * Errata Workaround for Cortex A75 Errata #790748.
-	 * This applies only to revision r0p0 of Cortex A75.
-	 * Inputs:
-	 * x0: variant[4:7] and revision[0:3] of current cpu.
-	 * Shall clobber: x0-x17
-	 * --------------------------------------------------
-	 */
-func errata_a75_790748_wa
-	/*
-	 * Compare x0 against revision r0p0
-	 */
-	mov	x17, x30
-	bl	check_errata_790748
-	cbz	x0, 1f
-	mrs	x1, CORTEX_A75_CPUACTLR_EL1
-	orr	x1, x1 ,#(1 << 13)
-	msr	CORTEX_A75_CPUACTLR_EL1, x1
-	isb
-1:
-	ret	x17
-endfunc errata_a75_790748_wa
+check_erratum_chosen cortex_a75, ERRATUM(ARCH_WORKAROUND_3), WORKAROUND_CVE_2022_23960
 
-func check_errata_790748
-	mov	x1, #0x00
-	b	cpu_rev_var_ls
-endfunc check_errata_790748
+workaround_reset_start cortex_a75, ERRATUM(764081), ERRATA_A75_764081
+	sysreg_bit_set sctlr_el3, SCTLR_IESB_BIT
+workaround_reset_end cortex_a75, ERRATUM(764081)
 
-	/* -------------------------------------------------
-	 * The CPU Ops reset function for Cortex-A75.
-	 * -------------------------------------------------
-	 */
-func cortex_a75_reset_func
-	mov	x19, x30
-	bl	cpu_get_rev_var
-	mov	x18, x0
+check_erratum_ls cortex_a75, ERRATUM(764081), CPU_REV(0, 0)
 
-#if ERRATA_A75_764081
-	mov	x0, x18
-	bl	errata_a75_764081_wa
-#endif
+workaround_reset_start cortex_a75, ERRATUM(790748), ERRATA_A75_790748
+	sysreg_bit_set CORTEX_A75_CPUACTLR_EL1, (1 << 13)
+workaround_reset_end cortex_a75, ERRATUM(790748)
 
-#if ERRATA_A75_790748
-	mov	x0, x18
-	bl	errata_a75_790748_wa
-#endif
+check_erratum_ls cortex_a75, ERRATUM(790748), CPU_REV(0, 0)
 
-#if IMAGE_BL31 && WORKAROUND_CVE_2017_5715
-	cpu_check_csv2	x0, 1f
-	adr	x0, wa_cve_2017_5715_bpiall_vbar
-	msr	vbar_el3, x0
-	isb
-1:
-#endif
+workaround_reset_start cortex_a75, ERRATUM(798953), ERRATA_DSU_798953
+	errata_dsu_798953_wa_impl
+workaround_reset_end cortex_a75, ERRATUM(798953)
 
-#if WORKAROUND_CVE_2018_3639
-	mrs	x0, CORTEX_A75_CPUACTLR_EL1
-	orr	x0, x0, #CORTEX_A75_CPUACTLR_EL1_DISABLE_LOAD_PASS_STORE
-	msr	CORTEX_A75_CPUACTLR_EL1, x0
-	isb
-#endif
+check_erratum_custom_start cortex_a75, ERRATUM(798953)
+	check_errata_dsu_798953_impl
+	ret
+check_erratum_custom_end cortex_a75, ERRATUM(798953)
 
-#if ERRATA_DSU_798953
-	bl	errata_dsu_798953_wa
-#endif
+workaround_reset_start cortex_a75, ERRATUM(936184), ERRATA_DSU_936184
+	errata_dsu_936184_wa_impl
+workaround_reset_end cortex_a75, ERRATUM(936184)
 
-#if ERRATA_DSU_936184
-	bl	errata_dsu_936184_wa
-#endif
+check_erratum_custom_start cortex_a75, ERRATUM(936184)
+	check_errata_dsu_936184_impl
+	ret
+check_erratum_custom_end cortex_a75, ERRATUM(936184)
 
-#if ENABLE_AMU
-	/* Make sure accesses from EL0/EL1 and EL2 are not trapped to EL3 */
-	mrs	x0, actlr_el3
-	orr	x0, x0, #CORTEX_A75_ACTLR_AMEN_BIT
-	msr	actlr_el3, x0
-	isb
+workaround_reset_start cortex_a75, CVE(2017, 5715), WORKAROUND_CVE_2017_5715
+#if IMAGE_BL31
+	override_vector_table wa_cve_2017_5715_bpiall_vbar
+#endif /* IMAGE_BL31 */
+workaround_reset_end cortex_a75, CVE(2017, 5715)
 
-	/* Make sure accesses from EL0/EL1 are not trapped to EL2 */
-	mrs	x0, actlr_el2
-	orr	x0, x0, #CORTEX_A75_ACTLR_AMEN_BIT
-	msr	actlr_el2, x0
-	isb
-
-	/* Enable group0 counters */
-	mov	x0, #CORTEX_A75_AMU_GROUP0_MASK
-	msr	CPUAMCNTENSET_EL0, x0
-	isb
-
-	/* Enable group1 counters */
-	mov	x0, #CORTEX_A75_AMU_GROUP1_MASK
-	msr	CPUAMCNTENSET_EL0, x0
-	isb
-#endif
-	ret	x19
-endfunc cortex_a75_reset_func
-
-func check_errata_cve_2017_5715
+check_erratum_custom_start cortex_a75, CVE(2017, 5715)
 	cpu_check_csv2	x0, 1f
 #if WORKAROUND_CVE_2017_5715
 	mov	x0, #ERRATA_APPLIES
@@ -150,16 +72,69 @@ func check_errata_cve_2017_5715
 1:
 	mov	x0, #ERRATA_NOT_APPLIES
 	ret
-endfunc check_errata_cve_2017_5715
+check_erratum_custom_end cortex_a75, CVE(2017, 5715)
 
-func check_errata_cve_2018_3639
-#if WORKAROUND_CVE_2018_3639
+workaround_reset_start cortex_a75, CVE(2018, 3639), WORKAROUND_CVE_2018_3639
+	sysreg_bit_set CORTEX_A75_CPUACTLR_EL1, CORTEX_A75_CPUACTLR_EL1_DISABLE_LOAD_PASS_STORE
+workaround_reset_end cortex_a75, CVE(2018, 3639)
+
+check_erratum_chosen cortex_a75, CVE(2018, 3639), WORKAROUND_CVE_2018_3639
+
+workaround_reset_start cortex_a75, CVE(2022, 23960), WORKAROUND_CVE_2022_23960
+#if IMAGE_BL31
+	/* Skip installing vector table again if already done for CVE(2017, 5715) */
+	adr	x0, wa_cve_2017_5715_bpiall_vbar
+	mrs	x1, vbar_el3
+	cmp	x0, x1
+	b.eq	1f
+	msr	vbar_el3, x0
+1:
+#endif /* IMAGE_BL31 */
+workaround_reset_end cortex_a75, CVE(2022, 23960)
+
+check_erratum_custom_start cortex_a75, CVE(2022, 23960)
+#if WORKAROUND_CVE_2017_5715 || WORKAROUND_CVE_2022_23960
+	cpu_check_csv2	x0, 1f
 	mov	x0, #ERRATA_APPLIES
-#else
-	mov	x0, #ERRATA_MISSING
-#endif
 	ret
-endfunc check_errata_cve_2018_3639
+1:
+# if WORKAROUND_CVE_2022_23960
+	mov	x0, #ERRATA_APPLIES
+# else
+	mov	x0, #ERRATA_MISSING
+# endif /* WORKAROUND_CVE_2022_23960 */
+	ret
+#endif /* WORKAROUND_CVE_2017_5715 || WORKAROUND_CVE_2022_23960 */
+	mov	x0, #ERRATA_MISSING
+	ret
+check_erratum_custom_end cortex_a75, CVE(2022, 23960)
+
+	/* -------------------------------------------------
+	 * The CPU Ops reset function for Cortex-A75.
+	 * -------------------------------------------------
+	 */
+
+cpu_reset_func_start cortex_a75
+#if ENABLE_FEAT_AMU
+	/* Make sure accesses from EL0/EL1 and EL2 are not trapped to EL3 */
+	sysreg_bit_set actlr_el3, CORTEX_A75_ACTLR_AMEN_BIT
+	isb
+
+	/* Make sure accesses from EL0/EL1 are not trapped to EL2 */
+	sysreg_bit_set actlr_el2, CORTEX_A75_ACTLR_AMEN_BIT
+	isb
+
+	/* Enable group0 counters */
+	mov	x0, #CORTEX_A75_AMU_GROUP0_MASK
+	msr	CPUAMCNTENSET_EL0, x0
+	isb
+
+	/* Enable group1 counters */
+	mov	x0, #CORTEX_A75_AMU_GROUP1_MASK
+	msr	CPUAMCNTENSET_EL0, x0
+	/* isb included in cpu_reset_func_end macro */
+#endif
+cpu_reset_func_end cortex_a75
 
 	/* ---------------------------------------------
 	 * HW will do the cache maintenance while powering down
@@ -170,38 +145,11 @@ func cortex_a75_core_pwr_dwn
 	 * Enable CPU power down bit in power control register
 	 * ---------------------------------------------
 	 */
-	mrs	x0, CORTEX_A75_CPUPWRCTLR_EL1
-	orr	x0, x0, #CORTEX_A75_CORE_PWRDN_EN_MASK
-	msr	CORTEX_A75_CPUPWRCTLR_EL1, x0
+	sysreg_bit_set CORTEX_A75_CPUPWRCTLR_EL1, \
+		CORTEX_A75_CORE_PWRDN_EN_MASK
 	isb
 	ret
 endfunc cortex_a75_core_pwr_dwn
-
-#if REPORT_ERRATA
-/*
- * Errata printing function for Cortex A75. Must follow AAPCS.
- */
-func cortex_a75_errata_report
-	stp	x8, x30, [sp, #-16]!
-
-	bl	cpu_get_rev_var
-	mov	x8, x0
-
-	/*
-	 * Report all errata. The revision-variant information is passed to
-	 * checking functions of each errata.
-	 */
-	report_errata ERRATA_A75_764081, cortex_a75, 764081
-	report_errata ERRATA_A75_790748, cortex_a75, 790748
-	report_errata WORKAROUND_CVE_2017_5715, cortex_a75, cve_2017_5715
-	report_errata WORKAROUND_CVE_2018_3639, cortex_a75, cve_2018_3639
-	report_errata ERRATA_DSU_798953, cortex_a75, dsu_798953
-	report_errata ERRATA_DSU_936184, cortex_a75, dsu_936184
-
-	ldp	x8, x30, [sp], #16
-	ret
-endfunc cortex_a75_errata_report
-#endif
 
 	/* ---------------------------------------------
 	 * This function provides cortex_a75 specific
@@ -222,8 +170,6 @@ func cortex_a75_cpu_reg_dump
 	ret
 endfunc cortex_a75_cpu_reg_dump
 
-declare_cpu_ops_wa cortex_a75, CORTEX_A75_MIDR, \
+declare_cpu_ops cortex_a75, CORTEX_A75_MIDR, \
 	cortex_a75_reset_func, \
-	check_errata_cve_2017_5715, \
-	CPU_NO_EXTRA2_FUNC, \
 	cortex_a75_core_pwr_dwn

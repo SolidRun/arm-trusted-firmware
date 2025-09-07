@@ -1,6 +1,7 @@
 /*
  * Copyright (c) 2019, ARM Limited and Contributors. All rights reserved.
- * Copyright (c) 2019, Intel Corporation. All rights reserved.
+ * Copyright (c) 2019-2023, Intel Corporation. All rights reserved.
+ * Copyright (c) 2024, Altera Corporation. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -9,28 +10,28 @@
 #include <assert.h>
 #include <common/debug.h>
 #include <common/tbbr/tbbr_img_def.h>
+#include <drivers/cadence/cdns_nand.h>
+#include <drivers/cadence/cdns_sdmmc.h>
 #include <drivers/io/io_block.h>
 #include <drivers/io/io_driver.h>
 #include <drivers/io/io_fip.h>
 #include <drivers/io/io_memmap.h>
+#include <drivers/io/io_mtd.h>
 #include <drivers/io/io_storage.h>
 #include <drivers/mmc.h>
 #include <drivers/partition/partition.h>
 #include <lib/mmio.h>
 #include <tools_share/firmware_image_package.h>
 
+#include "drivers/sdmmc/sdmmc.h"
 #include "socfpga_private.h"
-
-#define PLAT_FIP_BASE		(0)
-#define PLAT_FIP_MAX_SIZE	(0x1000000)
-#define PLAT_MMC_DATA_BASE	(0xffe3c000)
-#define PLAT_MMC_DATA_SIZE	(0x2000)
-#define PLAT_QSPI_DATA_BASE	(0x3C00000)
-#define PLAT_QSPI_DATA_SIZE	(0x1000000)
+#include "socfpga_ros.h"
 
 
 static const io_dev_connector_t *fip_dev_con;
 static const io_dev_connector_t *boot_dev_con;
+
+static io_mtd_dev_spec_t nand_dev_spec;
 
 static uintptr_t fip_dev_handle;
 static uintptr_t boot_dev_handle;
@@ -46,6 +47,12 @@ static const io_uuid_spec_t bl31_uuid_spec = {
 static const io_uuid_spec_t bl33_uuid_spec = {
 	.uuid = UUID_NON_TRUSTED_FIRMWARE_BL33,
 };
+
+# if ARM_LINUX_KERNEL_AS_BL33 != 0
+static const io_uuid_spec_t nt_fw_config_uuid_spec = {
+	.uuid = UUID_NT_FW_CONFIG,
+};
+# endif
 
 uintptr_t a2_lba_offset;
 const char a2[] = {0xa2, 0x0};
@@ -93,6 +100,13 @@ static const struct plat_io_policy policies[] = {
 		(uintptr_t) &bl33_uuid_spec,
 		check_fip
 	},
+# if ARM_LINUX_KERNEL_AS_BL33 != 0
+	[NT_FW_CONFIG_ID] = {
+		&fip_dev_handle,
+		(uintptr_t)&nt_fw_config_uuid_spec,
+		check_fip
+	},
+# endif
 	[GPT_IMAGE_ID] = {
 		&boot_dev_handle,
 		(uintptr_t) &gpt_block_spec,
@@ -128,24 +142,33 @@ static int check_fip(const uintptr_t spec)
 	return result;
 }
 
-void socfpga_io_setup(int boot_source)
+void socfpga_io_setup(int boot_source, unsigned long offset)
 {
 	int result;
+	fip_spec.offset = offset;
 
 	switch (boot_source) {
 	case BOOT_SOURCE_SDMMC:
 		register_io_dev = &register_io_dev_block;
 		boot_dev_spec.buffer.offset	= PLAT_MMC_DATA_BASE;
-		boot_dev_spec.buffer.length	= MMC_BLOCK_SIZE;
-		boot_dev_spec.ops.read		= mmc_read_blocks;
-		boot_dev_spec.ops.write		= mmc_write_blocks;
+		boot_dev_spec.buffer.length	= SOCFPGA_MMC_BLOCK_SIZE;
+		boot_dev_spec.ops.read		= SDMMC_READ_BLOCKS;
+		boot_dev_spec.ops.write		= SDMMC_WRITE_BLOCKS;
 		boot_dev_spec.block_size	= MMC_BLOCK_SIZE;
 		break;
 
 	case BOOT_SOURCE_QSPI:
 		register_io_dev = &register_io_dev_memmap;
-		fip_spec.offset = fip_spec.offset + PLAT_QSPI_DATA_BASE;
 		break;
+
+#if PLATFORM_MODEL == PLAT_SOCFPGA_AGILEX5
+	case BOOT_SOURCE_NAND:
+		register_io_dev = &register_io_dev_mtd;
+		nand_dev_spec.ops.init = cdns_nand_init_mtd;
+		nand_dev_spec.ops.read = cdns_nand_read;
+		nand_dev_spec.ops.write = NULL;
+		break;
+#endif
 
 	default:
 		ERROR("Unsupported boot source\n");
@@ -159,8 +182,13 @@ void socfpga_io_setup(int boot_source)
 	result = register_io_dev_fip(&fip_dev_con);
 	assert(result == 0);
 
-	result = io_dev_open(boot_dev_con, (uintptr_t)&boot_dev_spec,
-			&boot_dev_handle);
+	if (boot_source == BOOT_SOURCE_NAND) {
+		result = io_dev_open(boot_dev_con, (uintptr_t)&nand_dev_spec,
+								&boot_dev_handle);
+	} else {
+		result = io_dev_open(boot_dev_con, (uintptr_t)&boot_dev_spec,
+								&boot_dev_handle);
+	}
 	assert(result == 0);
 
 	result = io_dev_open(fip_dev_con, (uintptr_t)NULL, &fip_dev_handle);

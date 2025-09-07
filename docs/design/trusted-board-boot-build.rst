@@ -35,7 +35,14 @@ images with support for these features:
    By default, this will use the Chain of Trust described in the TBBR-client
    document. To select a different one, use the ``COT`` build option.
 
-   In the case of Arm platforms, the location of the ROTPK hash must also be
+   If using a custom build of OpenSSL, set the ``OPENSSL_DIR`` variable
+   accordingly so it points at the OpenSSL installation path, as explained in
+   :ref:`Build Options`. In addition, set the ``LD_LIBRARY_PATH`` variable
+   when running to point at the custom OpenSSL path, so the OpenSSL libraries
+   are loaded from that path instead of the default OS path. Export this
+   variable if necessary.
+
+   In the case of Arm platforms, the location of the ROTPK must also be
    specified at build time. The following locations are currently supported (see
    ``ARM_ROTPK_LOCATION`` build option):
 
@@ -47,13 +54,34 @@ images with support for these features:
       On Juno board, the default value corresponds to an ECDSA-SECP256R1 public
       key hash, whose private part is not currently available.
 
-   -  ``ARM_ROTPK_LOCATION=devel_rsa``: use the default hash located in
-      ``plat/arm/board/common/rotpk/arm_rotpk_rsa_sha256.bin``. Enforce
-      generation of the new hash if ``ROT_KEY`` is specified.
+   -  ``ARM_ROTPK_LOCATION=devel_rsa``: the ROTPK is a hash of the
+      RSA public key corresponding to the private key specified by
+      ``ROT_KEY``. If ``ROT_KEY`` is not specified, the private key is
+      the development key ``plat/arm/board/common/rotpk/arm_rotprivk_rsa.pem``.
+      There are also 3k and 4k RSA development keys in ``plat/arm/board/common/rotpk/``.
+      The hashing algorithm is selected by ``HASH_ALG``; sha256 is used if
+      ``HASH_ALG`` is not specified.
 
-   -  ``ARM_ROTPK_LOCATION=devel_ecdsa``: use the default hash located in
-      ``plat/arm/board/common/rotpk/arm_rotpk_ecdsa_sha256.bin``. Enforce
-      generation of the new hash if ``ROT_KEY`` is specified.
+   -  ``ARM_ROTPK_LOCATION=devel_ecdsa``: the ROTPK is a hash of the
+      ECDSA public key corresponding to the private key specified by
+      ``ROT_KEY``. If ``ROT_KEY`` is not specified, the private key is
+      the development key ``plat/arm/board/common/rotpk/arm_rotprivk_ecdsa.pem`` by default,
+      a 384 bit key ``plat/arm/board/common/rotpk/arm_rotprivk_ecdsa_secp384r1.pem`` also exists,
+      and can be specified by ``ROT_KEY``. The hashing algorithm is selected by ``HASH_ALG``;
+      sha256 is used if ``HASH_ALG`` is not specified.
+
+   -  ``ARM_ROTPK_LOCATION=devel_full_dev_rsa_key``: the ROTPK is an unhashed
+      RSA public key corresponding to the private key specified by ``ROT_KEY``.
+      If ``ROT_KEY`` is not specified, the private key is the development key
+      ``plat/arm/board/common/rotpk/arm_rotprivk_rsa.pem``. There are also
+      3k and 4k RSA development keys in ``plat/arm/board/common/rotpk/``.
+
+   -  ``ARM_ROTPK_LOCATION=devel_full_dev_ecdsa_key``: the ROTPK is an unhashed
+      RSA public key corresponding to the private key specified by ``ROT_KEY``.
+      If ``ROT_KEY`` is not specified, the private key is the development key
+      ``plat/arm/board/common/rotpk/arm_rotprivk_ecdsa.pem``, a 384 bit key
+      ``plat/arm/board/common/rotpk/arm_rotprivk_ecdsa_secp384r1.pem`` also exists,
+      and can be specified by ``ROT_KEY``.
 
    Example of command line using RSA development keys:
 
@@ -63,7 +91,7 @@ images with support for these features:
        make PLAT=<platform> TRUSTED_BOARD_BOOT=1 GENERATE_COT=1        \
        ARM_ROTPK_LOCATION=devel_rsa                                    \
        ROT_KEY=plat/arm/board/common/rotpk/arm_rotprivk_rsa.pem        \
-       BL33=<path-to>/<bl33_image>                                     \
+       BL33=<path-to>/<bl33_image> OPENSSL_DIR=<path-to>/<openssl>     \
        all fip
 
    The result of this build will be the bl1.bin and the fip.bin binaries. This
@@ -87,7 +115,7 @@ images with support for these features:
        make PLAT=juno TRUSTED_BOARD_BOOT=1 GENERATE_COT=1              \
        ARM_ROTPK_LOCATION=devel_rsa                                    \
        ROT_KEY=plat/arm/board/common/rotpk/arm_rotprivk_rsa.pem        \
-       BL33=<path-to>/<bl33_image>                                     \
+       BL33=<path-to>/<bl33_image> OPENSSL_DIR=<path-to>/<openssl>     \
        SCP_BL2=<path-to>/<scp_bl2_image>                               \
        SCP_BL2U=<path-to>/<scp_bl2u_image>                             \
        NS_BL2U=<path-to>/<ns_bl2u_image>                               \
@@ -109,7 +137,7 @@ images with support for these features:
 
 --------------
 
-*Copyright (c) 2019-2020, Arm Limited. All rights reserved.*
+*Copyright (c) 2019-2024, Arm Limited. All rights reserved.*
 
 .. _mbed TLS Repository: https://github.com/ARMmbed/mbedtls.git
 .. _mbed TLS Security Center: https://tls.mbed.org/security

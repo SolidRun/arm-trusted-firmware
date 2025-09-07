@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2017-2024, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -14,7 +14,6 @@
 #include <arch_helpers.h>
 #include <common/debug.h>
 #include <common/fdt_fixup.h>
-#include <common/fdt_wrappers.h>
 #include <drivers/arm/gicv2.h>
 #include <drivers/console.h>
 #include <drivers/generic_delay_timer.h>
@@ -31,6 +30,8 @@ static entry_point_info_t bl32_image_ep_info;
 static entry_point_info_t bl33_image_ep_info;
 
 static console_t console;
+
+static void *fdt;
 
 static const gicv2_driver_data_t sunxi_gic_data = {
 	.gicd_base = SUNXI_GICD_BASE,
@@ -49,7 +50,7 @@ static const gicv2_driver_data_t sunxi_gic_data = {
  * entry point to find the load address, which should be followed by the
  * size. Adding those together gives us the address of the DTB.
  */
-static void *sunxi_find_dtb(void)
+static void sunxi_find_dtb(void)
 {
 	uint64_t *u_boot_base;
 	int i;
@@ -57,7 +58,7 @@ static void *sunxi_find_dtb(void)
 	u_boot_base = (void *)SUNXI_BL33_VIRT_BASE;
 
 	for (i = 0; i < 2048 / sizeof(uint64_t); i++) {
-		uint32_t *dtb_base;
+		void *dtb_base;
 
 		if (u_boot_base[i] != PRELOADED_BL33_BASE)
 			continue;
@@ -67,15 +68,13 @@ static void *sunxi_find_dtb(void)
 			continue;
 
 		/* end of the image: base address + size */
-		dtb_base = (void *)((char *)u_boot_base + u_boot_base[i + 1]);
+		dtb_base = (char *)u_boot_base + u_boot_base[i + 1];
 
-		if (fdt_check_header(dtb_base) != 0)
-			continue;
-
-		return dtb_base;
+		if (fdt_check_header(dtb_base) == 0) {
+			fdt = dtb_base;
+			return;
+		}
 	}
-
-	return NULL;
 }
 
 void bl31_early_platform_setup2(u_register_t arg0, u_register_t arg1,
@@ -113,7 +112,6 @@ void bl31_platform_setup(void)
 {
 	const char *soc_name;
 	uint16_t soc_id = sunxi_read_soc_id();
-	void *fdt;
 
 	switch (soc_id) {
 	case SUNXI_SOC_A64:
@@ -128,6 +126,9 @@ void bl31_platform_setup(void)
 	case SUNXI_SOC_H616:
 		soc_name = "H616";
 		break;
+	case SUNXI_SOC_R329:
+		soc_name = "R329";
+		break;
 	default:
 		soc_name = "unknown";
 		break;
@@ -136,7 +137,7 @@ void bl31_platform_setup(void)
 
 	generic_delay_timer_init();
 
-	fdt = sunxi_find_dtb();
+	sunxi_find_dtb();
 	if (fdt) {
 		const char *model;
 		int length;
@@ -177,9 +178,13 @@ void bl31_platform_setup(void)
 
 	sunxi_pmic_setup(soc_id, fdt);
 
-	sunxi_prepare_dtb(fdt);
-
 	INFO("BL31: Platform setup done\n");
+}
+
+void bl31_plat_runtime_setup(void)
+{
+	/* Change the DTB if the configuration requires so. */
+	sunxi_prepare_dtb(fdt);
 }
 
 entry_point_info_t *bl31_plat_get_next_image_ep_info(uint32_t type)

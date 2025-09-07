@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019, Intel Corporation. All rights reserved.
+ * Copyright (c) 2019-2023, Intel Corporation. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -7,6 +7,7 @@
 #ifndef __CLOCKMANAGER_H__
 #define __CLOCKMANAGER_H__
 
+#include "s10_system_manager.h"
 #include "socfpga_handoff.h"
 
 #define ALT_CLKMGR				0xffd10000
@@ -60,6 +61,7 @@
 
 #define ALT_CLKMGR_PERPLL			0xffd100a4
 #define ALT_CLKMGR_PERPLL_EN			0x0
+#define ALT_CLKMGR_PERPLL_EN_SDMMCCLK		BIT(5)
 #define ALT_CLKMGR_PERPLL_BYPASS		0xc
 #define ALT_CLKMGR_PERPLL_CNTR2CLK		0x18
 #define ALT_CLKMGR_PERPLL_CNTR3CLK		0x1c
@@ -92,5 +94,9 @@ void config_clkmgr_handoff(handoff *hoff_ptr);
 uint32_t get_wdt_clk(void);
 uint32_t get_uart_clk(void);
 uint32_t get_mmc_clk(void);
+uint32_t get_l3_clk(uint32_t ref_clk);
+uint32_t get_cpu_clk(void);
+uint32_t get_ref_clk(uint32_t pllglob);
+uint32_t get_mpu_periph_clk(void);
 
 #endif

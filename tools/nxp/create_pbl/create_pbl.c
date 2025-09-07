@@ -1,5 +1,5 @@
 /*
- * Copyright 2021 NXP
+ * Copyright 2021-2022 NXP
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
@@ -507,7 +507,9 @@ int add_boot_ptr_cmd(FILE *fp_rcw_pbi_op)
 		}
 	}
 
-	printf("\nBoot Location Pointer= %x\n", BYTE_SWAP_32(pblimg.ep));
+	printf("\nBoot Location Pointer= 0x%x\n",
+	       pblimg.chassis == CHASSIS_2 ? BYTE_SWAP_32(pblimg.ep) :
+	       pblimg.ep);
 	ret = SUCCESS;
 
 bootptr_err:
@@ -821,7 +823,9 @@ int main(int argc, char **argv)
 		}
 	}
 
-	if ((args & MAND_ARG_MASK) != MAND_ARG_MASK) {
+	if ((args & MAND_ARG_MASK) != MAND_ARG_MASK
+			|| pblimg.rcw_nm == NULL
+			|| pblimg.imagefile == NULL) {
 		print_usage();
 	}
 
@@ -908,7 +912,7 @@ int main(int argc, char **argv)
 		while (word != 0x808f0000 && word != 0x80ff0000) {
 			pbl_size++;
 			/* 11th words in RCW has PBL length. Update it
-			 * with new length. 2 comamnds get added
+			 * with new length. 2 commands get added
 			 * Block copy + CCSR Write/CSF header write
 			 */
 			if (pbl_size == 11) {

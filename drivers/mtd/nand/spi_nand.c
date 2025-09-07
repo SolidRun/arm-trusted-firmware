@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019,  STMicroelectronics - All Rights Reserved
+ * Copyright (c) 2019-2023,  STMicroelectronics - All Rights Reserved
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -8,16 +8,15 @@
 #include <errno.h>
 #include <stddef.h>
 
-#include <platform_def.h>
-
 #include <common/debug.h>
 #include <drivers/delay_timer.h>
 #include <drivers/spi_nand.h>
 #include <lib/utils.h>
 
+#include <platform_def.h>
+
 #define SPI_NAND_MAX_ID_LEN		4U
 #define DELAY_US_400MS			400000U
-#define MACRONIX_ID			0xC2U
 
 static struct spinand_device spinand_dev;
 
@@ -91,7 +90,7 @@ static int spi_nand_quad_enable(uint8_t manufacturer_id)
 {
 	bool enable = false;
 
-	if (manufacturer_id != MACRONIX_ID) {
+	if ((spinand_dev.flags & SPI_NAND_HAS_QE_BIT) == 0U) {
 		return 0;
 	}
 
@@ -246,7 +245,7 @@ static int spi_nand_mtd_block_is_bad(unsigned int block)
 
 	if ((bbm_marker[0] != GENMASK_32(7, 0)) ||
 	    (bbm_marker[1] != GENMASK_32(7, 0))) {
-		WARN("Block %i is bad\n", block);
+		WARN("Block %u is bad\n", block);
 		return 1;
 	}
 
@@ -286,6 +285,10 @@ int spi_nand_init(unsigned long long *size, unsigned int *erase_size)
 		return -EINVAL;
 	}
 
+	assert((spinand_dev.nand_dev->page_size != 0U) &&
+	       (spinand_dev.nand_dev->block_size != 0U) &&
+	       (spinand_dev.nand_dev->size != 0U));
+
 	ret = spi_nand_reset();
 	if (ret != 0) {
 		return ret;
@@ -301,14 +304,14 @@ int spi_nand_init(unsigned long long *size, unsigned int *erase_size)
 		return ret;
 	}
 
-	ret = spi_nand_quad_enable(id[0]);
+	ret = spi_nand_quad_enable(id[1]);
 	if (ret != 0) {
 		return ret;
 	}
 
-	VERBOSE("SPI_NAND Detected ID 0x%x 0x%x\n", id[0], id[1]);
+	VERBOSE("SPI_NAND Detected ID 0x%x\n", id[1]);
 
-	VERBOSE("Page size %i, Block size %i, size %lli\n",
+	VERBOSE("Page size %u, Block size %u, size %llu\n",
 		spinand_dev.nand_dev->page_size,
 		spinand_dev.nand_dev->block_size,
 		spinand_dev.nand_dev->size);

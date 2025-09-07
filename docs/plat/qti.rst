@@ -1,8 +1,8 @@
 Qualcomm Technologies, Inc.
 ===========================
 
-Trusted Firmware-A (TF-A) implements the EL3 firmware layer for QTI SC7180.
-
+Trusted Firmware-A (TF-A) implements the EL3 firmware layer for QTI SC7180,
+SC7280 and QCS615.
 
 Boot Trace
 -------------
@@ -30,7 +30,8 @@ The build command looks like
 
     make CROSS_COMPILE=aarch64-linux-gnu- PLAT=sc7180 COREBOOT=1
 
-update value of CROSS_COMPILE argument with your cross-compilation toolchain.
+Update value of CROSS_COMPILE argument with your cross-compilation toolchain.
+Update the value of PLAT to be either of sc7180, sc7280 or qcs615
 
 Additional QTISECLIB_PATH=<path to qtiseclib> can be added in build command.
 if QTISECLIB_PATH is not added in build command stub implementation of qtiseclib
@@ -38,4 +39,7 @@ is picked. qtiseclib with stub implementation doesn't boot device. This was
 added to satisfy compilation.
 
 QTISELIB for SC7180 is available at
-`link <https://review.coreboot.org/cgit/qc_blobs.git/plain/sc7180/qtiseclib/libqtisec.a>`__
+`link <https://github.com/coreboot/qc_blobs/blob/master/sc7180/qtiseclib/libqtisec.a?raw=true>`__
+QTISELIB for SC7280 is available at
+`link <https://github.com/coreboot/qc_blobs/blob/master/sc7280/qtiseclib/libqtisec.a?raw=true>`__
+QTISECLIB for QCS615 is not available yet and currently compile with stubs only.

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2020, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2013-2025, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -218,23 +218,12 @@ unexpected_sync_exception:
 smc_handler:
 	/* -----------------------------------------------------
 	 * Save x0-x29 and ARMv8.3-PAuth (if enabled) registers.
-	 * If Secure Cycle Counter is not disabled in MDCR_EL3
-	 * when ARMv8.5-PMU is implemented, save PMCR_EL0 and
-	 * disable Cycle Counter.
+	 * Save PMCR_EL0 and disable Cycle Counter.
 	 * TODO: Revisit to store only SMCCC specified registers.
 	 * -----------------------------------------------------
 	 */
-	bl	save_gp_pmcr_pauth_regs
+	bl	prepare_el3_entry
 
-#if ENABLE_PAUTH
-	/* -----------------------------------------------------
-	 * Load and program stored APIAKey firmware key.
-	 * Re-enable pointer authentication in EL3, as it was
-	 * disabled before jumping to the next boot image.
-	 * -----------------------------------------------------
-	 */
-	bl	pauth_load_bl1_apiakey_enable
-#endif
 	/* -----------------------------------------------------
 	 * Populate the parameters for the SMC handler. We
 	 * already have x0-x4 in place. x5 will point to a

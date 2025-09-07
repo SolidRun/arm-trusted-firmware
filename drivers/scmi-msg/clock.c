@@ -37,7 +37,8 @@ const char *plat_scmi_clock_get_name(unsigned int agent_id __unused,
 int32_t plat_scmi_clock_rates_array(unsigned int agent_id __unused,
 				    unsigned int scmi_id __unused,
 				    unsigned long *rates __unused,
-				    size_t *nb_elts __unused)
+				    size_t *nb_elts __unused,
+				    uint32_t start_idx __unused)
 {
 	return SCMI_NOT_SUPPORTED;
 }
@@ -298,7 +299,7 @@ static void scmi_clock_describe_rates(struct scmi_msg *msg)
 
 	/* Platform may support array rate description */
 	status = plat_scmi_clock_rates_array(msg->agent_id, clock_id, NULL,
-					     &nb_rates);
+					     &nb_rates, 0);
 	if (status == SCMI_SUCCESS) {
 		/* Currently 12 cells mex, so it's affordable for the stack */
 		unsigned long plat_rates[RATES_ARRAY_SIZE_MAX / RATE_DESC_SIZE];
@@ -307,7 +308,8 @@ static void scmi_clock_describe_rates(struct scmi_msg *msg)
 		size_t rem_nb = nb_rates - in_args->rate_index - ret_nb;
 
 		status =  plat_scmi_clock_rates_array(msg->agent_id, clock_id,
-						      plat_rates, &ret_nb);
+						      plat_rates, &ret_nb,
+						      in_args->rate_index);
 		if (status == SCMI_SUCCESS) {
 			write_rate_desc_array_in_buffer(msg->out + sizeof(p2a),
 							plat_rates, ret_nb);
@@ -344,7 +346,7 @@ static void scmi_clock_describe_rates(struct scmi_msg *msg)
 		scmi_status_response(msg, status);
 	} else {
 		/*
-		 * Message payload is already writen to msg->out, and
+		 * Message payload is already written to msg->out, and
 		 * msg->out_size_out updated.
 		 */
 	}
@@ -361,7 +363,7 @@ static const scmi_msg_handler_t scmi_clock_handler_table[] = {
 	[SCMI_CLOCK_CONFIG_SET] = scmi_clock_config_set,
 };
 
-static bool message_id_is_supported(size_t message_id)
+static bool message_id_is_supported(unsigned int message_id)
 {
 	return (message_id < ARRAY_SIZE(scmi_clock_handler_table)) &&
 	       (scmi_clock_handler_table[message_id] != NULL);

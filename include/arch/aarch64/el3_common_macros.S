@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2020, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2015-2025, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -9,6 +9,7 @@
 
 #include <arch.h>
 #include <asm_macros.S>
+#include <assert_macros.S>
 #include <context.h>
 #include <lib/xlat_tables/xlat_tables_defs.h>
 
@@ -31,13 +32,28 @@
 	 *  load or store one or more registers have an alignment check that the
 	 *  address being accessed is aligned to the size of the data element(s)
 	 *  being accessed.
+	 *
+	 * SCTLR_EL3.BT: PAuth instructions are compatible with bti jc
 	 * ---------------------------------------------------------------------
 	 */
-	mov	x1, #(SCTLR_I_BIT | SCTLR_A_BIT | SCTLR_SA_BIT)
+	mov_imm	x1, (SCTLR_I_BIT | SCTLR_A_BIT | SCTLR_SA_BIT)
 	mrs	x0, sctlr_el3
+#if ENABLE_BTI
+	bic	x0, x0, #SCTLR_BT_BIT
+#endif
 	orr	x0, x0, x1
 	msr	sctlr_el3, x0
 	isb
+
+#if ENABLE_FEAT_SCTLR2
+#if ENABLE_FEAT_SCTLR2 > 1
+	is_feat_sctlr2_present_asm x1
+	beq	feat_sctlr2_not_supported\@
+#endif
+	mov	x1, #SCTLR2_RESET_VAL
+	msr	SCTLR2_EL3, x1
+feat_sctlr2_not_supported\@:
+#endif
 
 #ifdef IMAGE_BL31
 	/* ---------------------------------------------------------------------
@@ -48,7 +64,9 @@
 	 * due to a NULL TPIDR_EL3.
 	 * ---------------------------------------------------------------------
 	 */
-	bl	init_cpu_data_ptr
+	bl	plat_my_core_pos
+	bl	_cpu_data_by_index
+	msr	tpidr_el3, x0
 #endif /* IMAGE_BL31 */
 
 	/* ---------------------------------------------------------------------
@@ -58,143 +76,37 @@
 	 * zero here but are updated ahead of transitioning to a lower EL in the
 	 * function cm_init_context_common().
 	 *
-	 * SCR_EL3.TWE: Set to zero so that execution of WFE instructions at
-	 *  EL2, EL1 and EL0 are not trapped to EL3.
+	 * SCR_EL3.EEL2: Set to one if S-EL2 is present and enabled.
 	 *
-	 * SCR_EL3.TWI: Set to zero so that execution of WFI instructions at
-	 *  EL2, EL1 and EL0 are not trapped to EL3.
-	 *
-	 * SCR_EL3.SIF: Set to one to disable instruction fetches from
-	 *  Non-secure memory.
-	 *
-	 * SCR_EL3.SMD: Set to zero to enable SMC calls at EL1 and above, from
-	 *  both Security states and both Execution states.
-	 *
-	 * SCR_EL3.EA: Set to one to route External Aborts and SError Interrupts
-	 *  to EL3 when executing at any EL.
-	 *
-	 * SCR_EL3.{API,APK}: For Armv8.3 pointer authentication feature,
-	 * disable traps to EL3 when accessing key registers or using pointer
-	 * authentication instructions from lower ELs.
+	 * NOTE: Modifying EEL2 bit along with EA bit ensures that we mitigate
+	 * against ERRATA_V2_3099206.
 	 * ---------------------------------------------------------------------
 	 */
-	mov_imm	x0, ((SCR_RESET_VAL | SCR_EA_BIT | SCR_SIF_BIT) \
-			& ~(SCR_TWE_BIT | SCR_TWI_BIT | SCR_SMD_BIT))
-#if CTX_INCLUDE_PAUTH_REGS
-	/*
-	 * If the pointer authentication registers are saved during world
-	 * switches, enable pointer authentication everywhere, as it is safe to
-	 * do so.
-	 */
-	orr	x0, x0, #(SCR_API_BIT | SCR_APK_BIT)
+	mov_imm	x0, SCR_RESET_VAL
+#if IMAGE_BL31 && defined(SPD_spmd) && SPMD_SPM_AT_SEL2
+	mrs	x1, id_aa64pfr0_el1
+	and	x1, x1, #(ID_AA64PFR0_SEL2_MASK << ID_AA64PFR0_SEL2_SHIFT)
+	cbz	x1, 1f
+	orr	x0, x0, #SCR_EEL2_BIT
 #endif
+1:
 	msr	scr_el3, x0
 
 	/* ---------------------------------------------------------------------
 	 * Initialise MDCR_EL3, setting all fields rather than relying on hw.
 	 * Some fields are architecturally UNKNOWN on reset.
-	 *
-	 * MDCR_EL3.SDD: Set to one to disable AArch64 Secure self-hosted debug.
-	 *  Debug exceptions, other than Breakpoint Instruction exceptions, are
-	 *  disabled from all ELs in Secure state.
-	 *
-	 * MDCR_EL3.SPD32: Set to 0b10 to disable AArch32 Secure self-hosted
-	 *  privileged debug from S-EL1.
-	 *
-	 * MDCR_EL3.TDOSA: Set to zero so that EL2 and EL2 System register
-	 *  access to the powerdown debug registers do not trap to EL3.
-	 *
-	 * MDCR_EL3.TDA: Set to zero to allow EL0, EL1 and EL2 access to the
-	 *  debug registers, other than those registers that are controlled by
-	 *  MDCR_EL3.TDOSA.
-	 *
-	 * MDCR_EL3.TPM: Set to zero so that EL0, EL1, and EL2 System register
-	 *  accesses to all Performance Monitors registers do not trap to EL3.
-	 *
-	 * MDCR_EL3.SCCD: Set to one so that cycle counting by PMCCNTR_EL0 is
-	 *  prohibited in Secure state. This bit is RES0 in versions of the
-	 *  architecture earlier than ARMv8.5, setting it to 1 doesn't have any
-	 *  effect on them.
-	 *
-	 * MDCR_EL3.SPME: Set to zero so that event counting by the programmable
-	 *  counters PMEVCNTR<n>_EL0 is prohibited in Secure state. If ARMv8.2
-	 *  Debug is not implemented this bit does not have any effect on the
-	 *  counters unless there is support for the implementation defined
-	 *  authentication interface ExternalSecureNoninvasiveDebugEnabled().
-	 * ---------------------------------------------------------------------
 	 */
-	mov_imm	x0, ((MDCR_EL3_RESET_VAL | MDCR_SDD_BIT | \
-		      MDCR_SPD32(MDCR_SPD32_DISABLE) | MDCR_SCCD_BIT) & \
-		    ~(MDCR_SPME_BIT | MDCR_TDOSA_BIT | MDCR_TDA_BIT | \
-		      MDCR_TPM_BIT))
-
+	mov_imm	x0, MDCR_EL3_RESET_VAL
 	msr	mdcr_el3, x0
-
-	/* ---------------------------------------------------------------------
-	 * Initialise PMCR_EL0 setting all fields rather than relying
-	 * on hw. Some fields are architecturally UNKNOWN on reset.
-	 *
-	 * PMCR_EL0.LP: Set to one so that event counter overflow, that
-	 *  is recorded in PMOVSCLR_EL0[0-30], occurs on the increment
-	 *  that changes PMEVCNTR<n>_EL0[63] from 1 to 0, when ARMv8.5-PMU
-	 *  is implemented. This bit is RES0 in versions of the architecture
-	 *  earlier than ARMv8.5, setting it to 1 doesn't have any effect
-	 *  on them.
-	 *
-	 * PMCR_EL0.LC: Set to one so that cycle counter overflow, that
-	 *  is recorded in PMOVSCLR_EL0[31], occurs on the increment
-	 *  that changes PMCCNTR_EL0[63] from 1 to 0.
-	 *
-	 * PMCR_EL0.DP: Set to one so that the cycle counter,
-	 *  PMCCNTR_EL0 does not count when event counting is prohibited.
-	 *
-	 * PMCR_EL0.X: Set to zero to disable export of events.
-	 *
-	 * PMCR_EL0.D: Set to zero so that, when enabled, PMCCNTR_EL0
-	 *  counts on every clock cycle.
-	 * ---------------------------------------------------------------------
-	 */
-	mov_imm	x0, ((PMCR_EL0_RESET_VAL | PMCR_EL0_LP_BIT | \
-		      PMCR_EL0_LC_BIT | PMCR_EL0_DP_BIT) & \
-		    ~(PMCR_EL0_X_BIT | PMCR_EL0_D_BIT))
-
-	msr	pmcr_el0, x0
-
-	/* ---------------------------------------------------------------------
-	 * Enable External Aborts and SError Interrupts now that the exception
-	 * vectors have been setup.
-	 * ---------------------------------------------------------------------
-	 */
-	msr	daifclr, #DAIF_ABT_BIT
 
 	/* ---------------------------------------------------------------------
 	 * Initialise CPTR_EL3, setting all fields rather than relying on hw.
 	 * All fields are architecturally UNKNOWN on reset.
-	 *
-	 * CPTR_EL3.TCPAC: Set to zero so that any accesses to CPACR_EL1,
-	 *  CPTR_EL2, CPACR, or HCPTR do not trap to EL3.
-	 *
-	 * CPTR_EL3.TTA: Set to zero so that System register accesses to the
-	 *  trace registers do not trap to EL3.
-	 *
-	 * CPTR_EL3.TFP: Set to zero so that accesses to the V- or Z- registers
-	 *  by Advanced SIMD, floating-point or SVE instructions (if implemented)
-	 *  do not trap to EL3.
+	 * ---------------------------------------------------------------------
 	 */
-	mov_imm x0, (CPTR_EL3_RESET_VAL & ~(TCPAC_BIT | TTA_BIT | TFP_BIT))
+	mov_imm x0, CPTR_EL3_RESET_VAL
 	msr	cptr_el3, x0
 
-	/*
-	 * If Data Independent Timing (DIT) functionality is implemented,
-	 * always enable DIT in EL3
-	 */
-	mrs	x0, id_aa64pfr0_el1
-	ubfx	x0, x0, #ID_AA64PFR0_DIT_SHIFT, #ID_AA64PFR0_DIT_LENGTH
-	cmp	x0, #ID_AA64PFR0_DIT_SUPPORTED
-	bne	1f
-	mov	x0, #DIT_BIT
-	msr	DIT, x0
-1:
 	.endm
 
 /* -----------------------------------------------------------------------------
@@ -273,13 +185,13 @@
 		 */
 		mov_imm	x0, (SCTLR_RESET_VAL & ~(SCTLR_EE_BIT | SCTLR_WXN_BIT \
 				| SCTLR_SA_BIT | SCTLR_A_BIT | SCTLR_DSSBS_BIT))
+#if ENABLE_FEAT_RAS
+		/* If FEAT_RAS is present assume FEAT_IESB is also present */
+		orr	x0, x0, #SCTLR_IESB_BIT
+#endif
 		msr	sctlr_el3, x0
 		isb
 	.endif /* _init_sctlr */
-
-#if DISABLE_MTPMU
-		bl	mtpmu_disable
-#endif
 
 	.if \_warm_boot_mailbox
 		/* -------------------------------------------------------------
@@ -324,15 +236,15 @@
 	msr	vbar_el3, x0
 	isb
 
-	/* ---------------------------------------------------------------------
-	 * It is a cold boot.
-	 * Perform any processor specific actions upon reset e.g. cache, TLB
-	 * invalidations etc.
-	 * ---------------------------------------------------------------------
-	 */
-	bl	reset_handler
+	call_reset_handler
 
 	el3_arch_init_common
+
+	/* ---------------------------------------------------------------------
+	 * Set the el3 execution context(i.e. root_context).
+	 * ---------------------------------------------------------------------
+	 */
+	setup_el3_execution_context
 
 	.if \_secondary_cold_boot
 		/* -------------------------------------------------------------
@@ -373,17 +285,31 @@
 	 * ---------------------------------------------------------------------
 	 */
 	.if \_init_c_runtime
-#if defined(IMAGE_BL31) || (defined(IMAGE_BL2) && BL2_AT_EL3 && BL2_INV_DCACHE)
+#if defined(IMAGE_BL31) || (defined(IMAGE_BL2) && \
+	((RESET_TO_BL2 && BL2_INV_DCACHE) || ENABLE_RME))
 		/* -------------------------------------------------------------
 		 * Invalidate the RW memory used by the BL31 image. This
 		 * includes the data and NOBITS sections. This is done to
 		 * safeguard against possible corruption of this memory by
 		 * dirty cache lines in a system cache as a result of use by
-		 * an earlier boot loader stage.
+		 * an earlier boot loader stage. If PIE is enabled however,
+		 * RO sections including the GOT may be modified during
+                 * pie fixup. Therefore, to be on the safe side, invalidate
+		 * the entire image region if PIE is enabled.
 		 * -------------------------------------------------------------
 		 */
+#if ENABLE_PIE
+#if SEPARATE_CODE_AND_RODATA
+		adrp	x0, __TEXT_START__
+		add	x0, x0, :lo12:__TEXT_START__
+#else
+		adrp	x0, __RO_START__
+		add	x0, x0, :lo12:__RO_START__
+#endif /* SEPARATE_CODE_AND_RODATA */
+#else
 		adrp	x0, __RW_START__
 		add	x0, x0, :lo12:__RW_START__
+#endif /* ENABLE_PIE */
 		adrp	x1, __RW_END__
 		add	x1, x1, :lo12:__RW_END__
 		sub	x1, x1, x0
@@ -393,6 +319,14 @@
 		add	x0, x0, :lo12:__NOBITS_START__
 		adrp	x1, __NOBITS_END__
 		add	x1, x1, :lo12:__NOBITS_END__
+		sub	x1, x1, x0
+		bl	inv_dcache_range
+#endif
+#if defined(IMAGE_BL2) && SEPARATE_BL2_NOLOAD_REGION
+		adrp	x0, __BL2_NOLOAD_START__
+		add	x0, x0, :lo12:__BL2_NOLOAD_START__
+		adrp	x1, __BL2_NOLOAD_END__
+		add	x1, x1, :lo12:__BL2_NOLOAD_END__
 		sub	x1, x1, x0
 		bl	inv_dcache_range
 #endif
@@ -414,7 +348,10 @@
 		bl	zeromem
 #endif
 
-#if defined(IMAGE_BL1) || (defined(IMAGE_BL2) && BL2_AT_EL3 && BL2_IN_XIP_MEM)
+#if defined(IMAGE_BL1) ||	\
+	(defined(IMAGE_BL2) && RESET_TO_BL2 && BL2_IN_XIP_MEM) || \
+	(defined(IMAGE_BL31) && SEPARATE_RWDATA_REGION)
+
 		adrp	x0, __DATA_RAM_START__
 		add	x0, x0, :lo12:__DATA_RAM_START__
 		adrp	x1, __DATA_ROM_START__
@@ -451,13 +388,12 @@
 	.macro	apply_at_speculative_wa
 #if ERRATA_SPECULATIVE_AT
 	/*
-	 * Explicitly save x30 so as to free up a register and to enable
-	 * branching and also, save x29 which will be used in the called
-	 * function
+	 * This function expects x30 has been saved.
+	 * Also, save x29 which will be used in the called function.
 	 */
-	stp	x29, x30, [sp, #CTX_GPREGS_OFFSET + CTX_GPREG_X29]
+	str	x29, [sp, #CTX_GPREGS_OFFSET + CTX_GPREG_X29]
 	bl	save_and_update_ptw_el1_sys_regs
-	ldp	x29, x30, [sp, #CTX_GPREGS_OFFSET + CTX_GPREG_X29]
+	ldr	x29, [sp, #CTX_GPREGS_OFFSET + CTX_GPREG_X29]
 #endif
 	.endm
 
@@ -479,11 +415,101 @@
 	 * -----------------------------------------------------------
 	 */
 	isb
-	ldp	x28, x29, [sp, #CTX_EL1_SYSREGS_OFFSET + CTX_SCTLR_EL1]
+	ldp	x28, x29, [sp, #CTX_ERRATA_SPEC_AT_OFFSET + CTX_ERRATA_SPEC_AT_SCTLR_EL1]
 	msr	sctlr_el1, x28
 	isb
 	msr	tcr_el1, x29
 #endif
+	.endm
+
+/* -----------------------------------------------------------------
+ * The below macro reads SCR_EL3 from the context structure to
+ * determine the security state of the context upon ERET.
+ * ------------------------------------------------------------------
+ */
+	.macro get_security_state _ret:req, _scr_reg:req
+		ubfx 	\_ret, \_scr_reg, #SCR_NSE_SHIFT, #1
+		cmp 	\_ret, #1
+		beq 	realm_state
+		bfi	\_ret, \_scr_reg, #0, #1
+		b 	end
+	realm_state:
+		mov 	\_ret, #2
+	end:
+	.endm
+
+/*-----------------------------------------------------------------------------
+ * Helper macro to configure EL3 registers we care about, while executing
+ * at EL3/Root world. Root world has its own execution environment and
+ * needs to have its settings configured to be independent of other worlds.
+ * -----------------------------------------------------------------------------
+ */
+	.macro setup_el3_execution_context
+
+	/* ---------------------------------------------------------------------
+	 * The following registers need to be part of separate root context
+	 * as their values are of importance during EL3 execution.
+	 * Hence these registers are overwritten to their intital values,
+	 * irrespective of whichever world they return from to ensure EL3 has a
+	 * consistent execution context throughout the lifetime of TF-A.
+	 *
+	 * DAIF.A: Enable External Aborts and SError Interrupts at EL3.
+	 *
+	 * MDCR_EL3.SDD: Set to one to disable AArch64 Secure self-hosted debug.
+	 *  Debug exceptions, other than Breakpoint Instruction exceptions, are
+	 *  disabled from all ELs in Secure state.
+	 *
+	 * SCR_EL3.EA: Set to one to enable SError interrupts at EL3.
+	 *
+	 * SCR_EL3.SIF: Set to one to disable instruction fetches from
+	 *  Non-secure memory.
+	 *
+	 * PMCR_EL0.DP: Set to one so that the cycle counter,
+	 *  PMCCNTR_EL0 does not count when event counting is prohibited.
+	 *  Necessary on PMUv3 <= p7 where MDCR_EL3.{SCCD,MCCD} are not
+	 *  available.
+	 *
+	 * CPTR_EL3.EZ: Set to one so that accesses to ZCR_EL3 do not trap
+	 * CPTR_EL3.TFP: Set to zero so that advanced SIMD operations don't trap
+	 * CPTR_EL3.ESM: Set to one so that SME related registers don't trap
+	 *
+	 * PSTATE.DIT: Set to one to enable the Data Independent Timing (DIT)
+	 *  functionality, if implemented in EL3.
+	 * ---------------------------------------------------------------------
+	 */
+		msr	daifclr, #DAIF_ABT_BIT
+
+		mrs 	x15, mdcr_el3
+		orr	x15, x15, #MDCR_SDD_BIT
+		msr	mdcr_el3, x15
+
+		mrs	x15, scr_el3
+		orr	x15, x15, #SCR_EA_BIT
+		orr	x15, x15, #SCR_SIF_BIT
+		msr	scr_el3, x15
+
+		mrs 	x15, pmcr_el0
+		orr	x15, x15, #PMCR_EL0_DP_BIT
+		msr	pmcr_el0, x15
+
+		mrs	x15, cptr_el3
+		orr	x15, x15, #CPTR_EZ_BIT
+		orr	x15, x15, #ESM_BIT
+		bic	x15, x15, #TFP_BIT
+		msr	cptr_el3, x15
+
+#if ENABLE_FEAT_DIT
+#if ENABLE_FEAT_DIT > 1
+		mrs	x15, id_aa64pfr0_el1
+		ubfx	x15, x15, #ID_AA64PFR0_DIT_SHIFT, #ID_AA64PFR0_DIT_LENGTH
+		cbz	x15, 1f
+#endif
+		mov	x15, #DIT_BIT
+		msr	DIT, x15
+	1:
+#endif
+
+		isb
 	.endm
 
 #endif /* EL3_COMMON_MACROS_S */

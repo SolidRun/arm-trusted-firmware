@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2020, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2015-2024, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -11,6 +11,9 @@
 #include <stdint.h>
 
 #include <lib/psci/psci.h>
+
+/* SGI used to trigger per-core power down request */
+#define CSS_CPU_PWR_DOWN_REQ_INTR	ARM_IRQ_SEC_SGI_7
 
 /* Macros to read the CSS power domain state */
 #define CSS_CORE_PWR_STATE(state)	(state)->pwr_domain_state[ARM_PWR_LVL0]
@@ -32,11 +35,14 @@ void css_pwr_domain_off(const psci_power_state_t *target_state);
 void css_pwr_domain_suspend(const psci_power_state_t *target_state);
 void css_pwr_domain_suspend_finish(
 				const psci_power_state_t *target_state);
-void __dead2 css_system_off(void);
-void __dead2 css_system_reset(void);
+void css_system_off(void);
+void css_system_reset(void);
 void css_cpu_standby(plat_local_state_t cpu_state);
 void css_get_sys_suspend_power_state(psci_power_state_t *req_state);
 int css_node_hw_state(u_register_t mpidr, unsigned int power_level);
+void css_setup_cpu_pwr_down_intr(void);
+int css_reboot_interrupt_handler(uint32_t intr_raw, uint32_t flags,
+		void *handle, void *cookie);
 
 /*
  * This mapping array has to be exported by the platform. Each element at

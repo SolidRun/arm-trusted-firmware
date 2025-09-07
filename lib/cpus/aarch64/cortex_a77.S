@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2021, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2018-2025, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -10,37 +10,30 @@
 #include <cortex_a77.h>
 #include <cpu_macros.S>
 #include <plat_macros.S>
+#include "wa_cve_2022_23960_bhb_vector.S"
 
 /* Hardware handled coherency */
 #if HW_ASSISTED_COHERENCY == 0
 #error "Cortex-A77 must be compiled with HW_ASSISTED_COHERENCY enabled"
 #endif
 
+cpu_reset_prologue cortex_a77
+
 /* 64-bit only core */
 #if CTX_INCLUDE_AARCH32_REGS == 1
 #error "Cortex-A77 supports only AArch64. Compile with CTX_INCLUDE_AARCH32_REGS=0"
 #endif
 
-	/* --------------------------------------------------
-	 * Errata Workaround for Cortex A77 Errata #1508412.
-	 * This applies only to revision <= r1p0 of Cortex A77.
-	 * Inputs:
-	 * x0: variant[4:7] and revision[0:3] of current cpu.
-	 * Shall clobber: x0-x17
-	 * --------------------------------------------------
-	 */
-func errata_a77_1508412_wa
-	/*
-	 * Compare x0 against revision r1p0
-	 */
-	mov	x17, x30
-	bl	check_errata_1508412
-	cbz	x0, 3f
-	/*
-	 * Compare x0 against revision r0p0
-	 */
-	bl	check_errata_1508412_0
+#if WORKAROUND_CVE_2022_23960
+	wa_cve_2022_23960_bhb_vector_table CORTEX_A77_BHB_LOOP_COUNT, cortex_a77
+#endif /* WORKAROUND_CVE_2022_23960 */
+
+workaround_reset_start cortex_a77, ERRATUM(1508412), ERRATA_A77_1508412
+	/* move cpu revision in again and compare against r0p0 */
+	mov	x0, x7
+	cpu_rev_var_ls	CPU_REV(0, 0)
 	cbz	x0, 1f
+
 	ldr	x0, =0x0
 	msr	CORTEX_A77_CPUPSELR_EL3, x0
 	ldr 	x0, =0x00E8400000
@@ -70,64 +63,30 @@ func errata_a77_1508412_wa
 2:
 	ldr	x0, =0x04004003FF
 	msr	CORTEX_A77_CPUPCR_EL3, x0
-	isb
-3:
-	ret	x17
-endfunc errata_a77_1508412_wa
+workaround_reset_end cortex_a77, ERRATUM(1508412)
 
-func check_errata_1508412
-	mov	x1, #0x10
-	b	cpu_rev_var_ls
-endfunc check_errata_1508412
+check_erratum_ls cortex_a77, ERRATUM(1508412), CPU_REV(1, 0)
 
-func check_errata_1508412_0
-	mov	x1, #0x0
-	b	cpu_rev_var_ls
-endfunc check_errata_1508412_0
+workaround_reset_start cortex_a77, ERRATUM(1791578), ERRATA_A77_1791578
+	sysreg_bit_set CORTEX_A77_ACTLR2_EL1, CORTEX_A77_ACTLR2_EL1_BIT_2
+workaround_reset_end cortex_a77, ERRATUM(1791578)
 
-	/* --------------------------------------------------
-	 * Errata Workaround for Cortex A77 Errata #1925769.
-	 * This applies to revision <= r1p1 of Cortex A77.
-	 * Inputs:
-	 * x0: variant[4:7] and revision[0:3] of current cpu.
-	 * Shall clobber: x0-x17
-	 * --------------------------------------------------
-	 */
-func errata_a77_1925769_wa
-	/* Compare x0 against revision <= r1p1 */
-	mov	x17, x30
-	bl	check_errata_1925769
-	cbz	x0, 1f
+check_erratum_ls cortex_a77, ERRATUM(1791578), CPU_REV(1, 1)
 
-	/* Set bit 8 in ECTLR_EL1 */
-	mrs	x1, CORTEX_A77_CPUECTLR_EL1
-	orr	x1, x1, #CORTEX_A77_CPUECTLR_EL1_BIT_8
-	msr	CORTEX_A77_CPUECTLR_EL1, x1
-	isb
-1:
-	ret	x17
-endfunc errata_a77_1925769_wa
+workaround_reset_start cortex_a77, ERRATUM(1800714), ERRATA_A77_1800714
+	/* Disable allocation of splintered pages in the L2 TLB */
+	sysreg_bit_set CORTEX_A77_CPUECTLR_EL1, CORTEX_A77_CPUECTLR_EL1_BIT_53
+workaround_reset_end cortex_a77, ERRATUM(1800714)
 
-func check_errata_1925769
-	/* Applies to everything <= r1p1 */
-	mov	x1, #0x11
-	b	cpu_rev_var_ls
-endfunc check_errata_1925769
+check_erratum_ls cortex_a77, ERRATUM(1800714), CPU_REV(1, 1)
 
-	/* --------------------------------------------------
-	 * Errata Workaround for Cortex A77 Errata #1946167.
-	 * This applies to revision <= r1p1 of Cortex A77.
-	 * Inputs:
-	 * x0: variant[4:7] and revision[0:3] of current cpu.
-	 * Shall clobber: x0-x17
-	 * --------------------------------------------------
-	 */
-func errata_a77_1946167_wa
-	/* Compare x0 against revision <= r1p1 */
-	mov	x17, x30
-	bl	check_errata_1946167
-	cbz	x0, 1f
+workaround_reset_start cortex_a77, ERRATUM(1925769), ERRATA_A77_1925769
+	sysreg_bit_set CORTEX_A77_CPUECTLR_EL1, CORTEX_A77_CPUECTLR_EL1_BIT_8
+workaround_reset_end cortex_a77, ERRATUM(1925769)
 
+check_erratum_ls cortex_a77, ERRATUM(1925769), CPU_REV(1, 1)
+
+workaround_reset_start cortex_a77, ERRATUM(1946167), ERRATA_A77_1946167
 	ldr	x0,=0x4
 	msr	CORTEX_A77_CPUPSELR_EL3,x0
 	ldr	x0,=0x10E3900002
@@ -154,45 +113,49 @@ func errata_a77_1946167_wa
 	msr	CORTEX_A77_CPUPMR_EL3,x0
 	ldr	x0,=0x2001003FF
 	msr	CORTEX_A77_CPUPCR_EL3,x0
+workaround_reset_end cortex_a77, ERRATUM(1946167)
 
-	isb
-1:
-	ret	x17
-endfunc errata_a77_1946167_wa
+check_erratum_ls cortex_a77, ERRATUM(1946167), CPU_REV(1, 1)
 
-func check_errata_1946167
-	/* Applies to everything <= r1p1 */
-	mov	x1, #0x11
-	b	cpu_rev_var_ls
-endfunc check_errata_1946167
+workaround_reset_start cortex_a77, ERRATUM(2356587), ERRATA_A77_2356587
+	sysreg_bit_set CORTEX_A77_ACTLR2_EL1, CORTEX_A77_ACTLR2_EL1_BIT_0
+workaround_reset_end cortex_a77, ERRATUM(2356587)
+
+check_erratum_ls cortex_a77, ERRATUM(2356587), CPU_REV(1, 1)
+
+workaround_runtime_start cortex_a77, ERRATUM(2743100), ERRATA_A77_2743100
+	/* dsb before isb of power down sequence */
+	dsb	sy
+workaround_runtime_end cortex_a77, ERRATUM(2743100), NO_ISB
+
+check_erratum_ls cortex_a77, ERRATUM(2743100), CPU_REV(1, 1)
+
+workaround_reset_start cortex_a77, CVE(2022, 23960), WORKAROUND_CVE_2022_23960
+#if IMAGE_BL31
+	/*
+	 * The Cortex-A77 generic vectors are overridden to apply errata
+         * mitigation on exception entry from lower ELs.
+	 */
+	adr	x0, wa_cve_vbar_cortex_a77
+	msr	vbar_el3, x0
+#endif /* IMAGE_BL31 */
+workaround_reset_end cortex_a77, CVE(2022, 23960)
+
+check_erratum_chosen cortex_a77, CVE(2022, 23960), WORKAROUND_CVE_2022_23960
+
+/* Disable hardware page aggregation. Enables mitigation for `CVE-2024-5660` */
+workaround_reset_start cortex_a77, CVE(2024, 5660), WORKAROUND_CVE_2024_5660
+	sysreg_bit_set CORTEX_A77_CPUECTLR_EL1, BIT(46)
+workaround_reset_end cortex_a77, CVE(2024, 5660)
+
+check_erratum_ls cortex_a77, CVE(2024, 5660), CPU_REV(1, 1)
 
 	/* -------------------------------------------------
-	 * The CPU Ops reset function for Cortex-A77.
-	 * Shall clobber: x0-x19
+	 * The CPU Ops reset function for Cortex-A77. Must follow AAPCS.
 	 * -------------------------------------------------
 	 */
-func cortex_a77_reset_func
-	mov	x19, x30
-	bl	cpu_get_rev_var
-	mov	x18, x0
-
-#if ERRATA_A77_1508412
-	mov	x0, x18
-	bl	errata_a77_1508412_wa
-#endif
-
-#if ERRATA_A77_1925769
-	mov	x0, x18
-	bl	errata_a77_1925769_wa
-#endif
-
-#if ERRATA_A77_1946167
-	mov	x0, x18
-	bl	errata_a77_1946167_wa
-#endif
-
-	ret	x19
-endfunc cortex_a77_reset_func
+cpu_reset_func_start cortex_a77
+cpu_reset_func_end cortex_a77
 
 	/* ---------------------------------------------
 	 * HW will do the cache maintenance while powering down
@@ -203,36 +166,14 @@ func cortex_a77_core_pwr_dwn
 	 * Enable CPU power down bit in power control register
 	 * ---------------------------------------------
 	 */
-	mrs	x0, CORTEX_A77_CPUPWRCTLR_EL1
-	orr	x0, x0, #CORTEX_A77_CPUPWRCTLR_EL1_CORE_PWRDN_BIT
-	msr	CORTEX_A77_CPUPWRCTLR_EL1, x0
+	sysreg_bit_set CORTEX_A77_CPUPWRCTLR_EL1, \
+		CORTEX_A77_CPUPWRCTLR_EL1_CORE_PWRDN_BIT
+
+	apply_erratum cortex_a77, ERRATUM(2743100), ERRATA_A77_2743100, NO_GET_CPU_REV
+
 	isb
 	ret
 endfunc cortex_a77_core_pwr_dwn
-
-#if REPORT_ERRATA
-/*
- * Errata printing function for Cortex-A77. Must follow AAPCS.
- */
-func cortex_a77_errata_report
-	stp	x8, x30, [sp, #-16]!
-
-	bl	cpu_get_rev_var
-	mov	x8, x0
-
-	/*
-	 * Report all errata. The revision-variant information is passed to
-	 * checking functions of each errata.
-	 */
-	report_errata ERRATA_A77_1508412, cortex_a77, 1508412
-	report_errata ERRATA_A77_1925769, cortex_a77, 1925769
-	report_errata ERRATA_A77_1946167, cortex_a77, 1946167
-
-	ldp	x8, x30, [sp], #16
-	ret
-endfunc cortex_a77_errata_report
-#endif
-
 
 	/* ---------------------------------------------
 	 * This function provides Cortex-A77 specific

@@ -120,39 +120,39 @@ This API should set the priority of the interrupt specified by first parameter
 In case of Arm standard platforms using GIC, the implementation of the API
 writes to GIC *Priority Register* set interrupt priority.
 
-Function: int plat_ic_has_interrupt_type(unsigned int type); [optional]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Function: bool plat_ic_has_interrupt_type(unsigned int type); [optional]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 ::
 
     Argument : unsigned int
-    Return   : int
+    Return   : bool
 
 This API should return whether the platform supports a given interrupt type. The
 parameter ``type`` shall be one of ``INTR_TYPE_EL3``, ``INTR_TYPE_S_EL1``, or
 ``INTR_TYPE_NS``.
 
 In case of Arm standard platforms using GICv3, the implementation of the API
-returns ``1`` for all interrupt types.
+returns *true* for all interrupt types.
 
-In case of Arm standard platforms using GICv2, the API always return ``1`` for
+In case of Arm standard platforms using GICv2, the API always return *true* for
 ``INTR_TYPE_NS``. Return value for other types depends on the value of build
 option ``GICV2_G0_FOR_EL3``:
 
 - For interrupt type ``INTR_TYPE_EL3``:
 
-  - When ``GICV2_G0_FOR_EL3`` is ``0``, it returns ``0``, indicating no support
+  - When ``GICV2_G0_FOR_EL3`` is ``0``, it returns *false*, indicating no support
     for EL3 interrupts.
 
-  - When ``GICV2_G0_FOR_EL3`` is ``1``, it returns ``1``, indicating support for
+  - When ``GICV2_G0_FOR_EL3`` is ``1``, it returns *true*, indicating support for
     EL3 interrupts.
 
 - For interrupt type ``INTR_TYPE_S_EL1``:
 
-  - When ``GICV2_G0_FOR_EL3`` is ``0``, it returns ``1``, indicating support for
+  - When ``GICV2_G0_FOR_EL3`` is ``0``, it returns *true*, indicating support for
     Secure EL1 interrupts.
 
-  - When ``GICV2_G0_FOR_EL3`` is ``1``, it returns ``0``, indicating no support
+  - When ``GICV2_G0_FOR_EL3`` is ``1``, it returns *false*, indicating no support
     for Secure EL1 interrupts.
 
 Function: void plat_ic_set_interrupt_type(unsigned int id, unsigned int type); [optional]
@@ -282,9 +282,28 @@ may be signalled to the PE. The API should return the current priority value
 that it's overwriting.
 
 In case of Arm standard platforms using GIC, the implementation of the API
-inserts to order memory updates before updating mask, then writes to the GIC
-*Priority Mask Register*, and make sure memory updates are visible before
-potential trigger due to mask update.
+inserts barriers to order memory updates before updating mask,
+then writes to the GIC *Priority Mask Register*, and make sure memory updates
+are visible before potential trigger due to mask update.
+
+Function: unsigned int plat_ic_deactivate_priority(unsigned int id); [optional]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+::
+
+    Argument : unsigned int
+    Return   : int
+
+This API performs the operations of plat_ic_set_priority_mask along with
+calling the errata workaround gicv3_apply_errata_wa_2384374(). This is
+performed when priority mask is restored to it's older value. This API returns
+the current priority value that it's overwriting.
+
+In case of Arm standard platforms using GIC, the implementation of the API
+inserts barriers to order memory updates before updating mask, then writes
+to the GIC *Priority Mask Register*, and make sure memory updates
+are visible before potential trigger due to mask update, and
+applies 2384374 GIC errata workaround to process pending interrupt packets.
 
 .. _plat_ic_get_interrupt_id:
 
@@ -306,4 +325,4 @@ masks out the interrupt ID field from the acknowledged value from GIC.
 
 --------------
 
-*Copyright (c) 2017-2019, Arm Limited and Contributors. All rights reserved.*
+*Copyright (c) 2017-2023, Arm Limited and Contributors. All rights reserved.*

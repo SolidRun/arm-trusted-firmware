@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020, MediaTek Inc. All rights reserved.
+ * Copyright (c) 2020-2023, MediaTek Inc. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -23,20 +23,11 @@ enum PLAT_SPM_COND {
 	PLAT_SPM_COND_MAX,
 };
 
-enum PLAT_SPM_COND_PLL {
-	PLAT_SPM_COND_PLL_UNIVPLL = 0,
-	PLAT_SPM_COND_PLL_MFGPLL,
-	PLAT_SPM_COND_PLL_MSDCPLL,
-	PLAT_SPM_COND_PLL_TVDPLL,
-	PLAT_SPM_COND_PLL_MMPLL,
-	PLAT_SPM_COND_PLL_MAX,
-};
-
-#define PLL_BIT_MFGPLL	(PLAT_SPM_COND_PLL_MFGPLL)
-#define PLL_BIT_MMPLL	(PLAT_SPM_COND_PLL_MMPLL)
-#define PLL_BIT_UNIVPLL	(PLAT_SPM_COND_PLL_UNIVPLL)
-#define PLL_BIT_MSDCPLL	(PLAT_SPM_COND_PLL_MSDCPLL)
-#define PLL_BIT_TVDPLL	(PLAT_SPM_COND_PLL_TVDPLL)
+#define PLL_BIT_UNIVPLL	BIT(0)
+#define PLL_BIT_MFGPLL	BIT(1)
+#define PLL_BIT_MSDCPLL	BIT(2)
+#define PLL_BIT_TVDPLL	BIT(3)
+#define PLL_BIT_MMPLL	BIT(4)
 
 /* Definition about SPM_COND_CHECK_BLOCKED
  * bit [00 ~ 15]: cg blocking index
@@ -60,6 +51,6 @@ extern unsigned int mt_spm_cond_check(int state_id,
 				      const struct mt_spm_cond_tables *src,
 				      const struct mt_spm_cond_tables *dest,
 				      struct mt_spm_cond_tables *res);
-extern int mt_spm_cond_update(struct mt_resource_constraint **con,
+extern int mt_spm_cond_update(struct mt_resource_constraint **con, unsigned int num,
 			      int stateid, void *priv);
 #endif /* MT_SPM_CONDIT_H */

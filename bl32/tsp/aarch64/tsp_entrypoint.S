@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2021, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2013-2025, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -10,12 +10,16 @@
 #include <asm_macros.S>
 #include <bl32/tsp/tsp.h>
 #include <lib/xlat_tables/xlat_tables_defs.h>
+#include <smccc_helpers.h>
 
 #include "../tsp_private.h"
 
 
 	.globl	tsp_entrypoint
 	.globl  tsp_vector_table
+#if SPMC_AT_EL3
+	.globl tsp_cpu_on_entry
+#endif
 
 
 
@@ -25,10 +29,10 @@
 	 * ---------------------------------------------
 	 */
 	.macro restore_args_call_smc
-	ldp	x6, x7, [x0, #TSP_ARG6]
-	ldp	x4, x5, [x0, #TSP_ARG4]
-	ldp	x2, x3, [x0, #TSP_ARG2]
-	ldp	x0, x1, [x0, #TSP_ARG0]
+	ldp	x6, x7, [x0, #SMC_ARG6]
+	ldp	x4, x5, [x0, #SMC_ARG4]
+	ldp	x2, x3, [x0, #SMC_ARG2]
+	ldp	x0, x1, [x0, #SMC_ARG0]
 	smc	#0
 	.endm
 
@@ -47,6 +51,15 @@
 	.endm
 
 func tsp_entrypoint _align=3
+	/*---------------------------------------------
+	 * Save arguments x0 - x3 from BL1 for future
+	 * use.
+	 * ---------------------------------------------
+	 */
+	mov	x20, x0
+	mov	x21, x1
+	mov	x22, x2
+	mov	x23, x3
 
 #if ENABLE_PIE
 		/*
@@ -90,6 +103,10 @@ func tsp_entrypoint _align=3
 	mov	x1, #(SCTLR_I_BIT | SCTLR_A_BIT | SCTLR_SA_BIT)
 	mrs	x0, sctlr_el1
 	orr	x0, x0, x1
+#if ENABLE_BTI
+	/* Enable PAC branch type compatibility */
+	bic     x0, x0, #(SCTLR_BT0_BIT | SCTLR_BT1_BIT)
+#endif
 	bic	x0, x0, #SCTLR_DSSBS_BIT
 	msr	sctlr_el1, x0
 	isb
@@ -100,11 +117,27 @@ func tsp_entrypoint _align=3
 	 * sections. This is done to safeguard against
 	 * possible corruption of this memory by dirty
 	 * cache lines in a system cache as a result of
-	 * use by an earlier boot loader stage.
+	 * use by an earlier boot loader stage. If PIE
+	 * is enabled however, RO sections including the
+	 * GOT may be modified during pie fixup.
+	 * Therefore, to be on the safe side, invalidate
+	 * the entire image region if PIE is enabled.
 	 * ---------------------------------------------
 	 */
-	adr	x0, __RW_START__
-	adr	x1, __RW_END__
+#if ENABLE_PIE
+#if SEPARATE_CODE_AND_RODATA
+	adrp	x0, __TEXT_START__
+	add	x0, x0, :lo12:__TEXT_START__
+#else
+	adrp	x0, __RO_START__
+	add	x0, x0, :lo12:__RO_START__
+#endif /* SEPARATE_CODE_AND_RODATA */
+#else
+	adrp	x0, __RW_START__
+	add	x0, x0, :lo12:__RW_START__
+#endif /* ENABLE_PIE */
+	adrp	x1, __RW_END__
+	add     x1, x1, :lo12:__RW_END__
 	sub	x1, x1, x0
 	bl	inv_dcache_range
 
@@ -148,6 +181,16 @@ func tsp_entrypoint _align=3
 #if STACK_PROTECTOR_ENABLED
 	bl	update_stack_protector_canary
 #endif
+
+	/*---------------------------------------------
+	 * Save arguments x0 - x3 from prio stage for
+	 * future use.
+	 * ---------------------------------------------
+	 */
+	mov	x0, x20
+	mov	x1, x21
+	mov	x2, x22
+	mov	x3, x23
 
 	/* ---------------------------------------------
 	 * Perform TSP setup

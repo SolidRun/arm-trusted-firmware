@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2017, Renesas Electronics Corporation. All rights reserved.
+ * Copyright (c) 2015-2023, Renesas Electronics Corporation. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -91,12 +91,12 @@
 #define RCAR_BL31DST_ADDRESS		(0x44000000U)
 #define RCAR_BL31DST_ADDRESSH		(0x00000000U)
 /* Destination size for BL31 */
-#define RCAR_BL31DST_SIZE		(0x00004000U)
+#define RCAR_BL31DST_SIZE		(0x0000F800U)
 /* Destination address for BL32 */
 #define RCAR_BL32DST_ADDRESS		(0x44100000U)
 #define RCAR_BL32DST_ADDRESSH		(0x00000000U)
 /* Destination size for BL32 */
-#define RCAR_BL32DST_SIZE		(0x00040000U)
+#define RCAR_BL32DST_SIZE		(0x00080000U)
 /* Destination address for BL33 */
 #define RCAR_BL33DST_ADDRESS		(0x50000000U)
 #define RCAR_BL33DST_ADDRESSH		(0x00000000U)

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2017-2024, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -203,10 +203,20 @@ void ehf_deactivate_priority(unsigned int priority)
 	 * one stashed earlier if there are no more to deactivate.
 	 */
 	cur_pri_idx = get_pe_highest_active_idx(pe_data);
-	if (cur_pri_idx == EHF_INVALID_IDX)
+
+#if GIC600_ERRATA_WA_2384374
+	if (cur_pri_idx == EHF_INVALID_IDX) {
+		old_mask = plat_ic_deactivate_priority(pe_data->init_pri_mask);
+	} else {
+		old_mask = plat_ic_deactivate_priority(priority);
+	}
+#else
+	if (cur_pri_idx == EHF_INVALID_IDX) {
 		old_mask = plat_ic_set_priority_mask(pe_data->init_pri_mask);
-	else
+	} else {
 		old_mask = plat_ic_set_priority_mask(priority);
+	}
+#endif
 
 	if (old_mask > priority) {
 		ERROR("Deactivation priority (0x%x) lower than Priority Mask (0x%x)\n",
@@ -458,7 +468,7 @@ void __init ehf_init(void)
 	int ret __unused;
 
 	/* Ensure EL3 interrupts are supported */
-	assert(plat_ic_has_interrupt_type(INTR_TYPE_EL3) != 0);
+	assert(plat_ic_has_interrupt_type(INTR_TYPE_EL3));
 
 	/*
 	 * Make sure that priority water mark has enough bits to represent the
@@ -475,9 +485,13 @@ void __init ehf_init(void)
 	assert((exception_data.pri_bits >= 1U) ||
 			(exception_data.pri_bits < 8U));
 
-	/* Route EL3 interrupts when in Secure and Non-secure. */
+	/* Route EL3 interrupts when in Non-secure. */
 	set_interrupt_rm_flag(flags, NON_SECURE);
+
+	/* Route EL3 interrupts only when SPM_MM present in secure. */
+#if SPM_MM
 	set_interrupt_rm_flag(flags, SECURE);
+#endif
 
 	/* Register handler for EL3 interrupts */
 	ret = register_interrupt_type_handler(INTR_TYPE_EL3,

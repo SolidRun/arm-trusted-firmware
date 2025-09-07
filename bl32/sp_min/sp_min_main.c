@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2019, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2016-2025, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -14,6 +14,7 @@
 #include <arch.h>
 #include <arch_helpers.h>
 #include <common/bl_common.h>
+#include <common/build_message.h>
 #include <common/debug.h>
 #include <common/runtime_svc.h>
 #include <context.h>
@@ -112,6 +113,7 @@ static void copy_cpu_ctx_to_smc_stx(const regs_t *cpu_reg_ctx,
 	next_smc_ctx->r0 = read_ctx_reg(cpu_reg_ctx, CTX_GPREG_R0);
 	next_smc_ctx->r1 = read_ctx_reg(cpu_reg_ctx, CTX_GPREG_R1);
 	next_smc_ctx->r2 = read_ctx_reg(cpu_reg_ctx, CTX_GPREG_R2);
+	next_smc_ctx->r3 = read_ctx_reg(cpu_reg_ctx, CTX_GPREG_R3);
 	next_smc_ctx->lr_mon = read_ctx_reg(cpu_reg_ctx, CTX_LR);
 	next_smc_ctx->spsr_mon = read_ctx_reg(cpu_reg_ctx, CTX_SPSR);
 	next_smc_ctx->scr = read_ctx_reg(cpu_reg_ctx, CTX_SCR);
@@ -134,6 +136,7 @@ static void sp_min_prepare_next_image_entry(void)
 	assert(NON_SECURE == GET_SECURITY_STATE(next_image_info->h.attr));
 
 	INFO("SP_MIN: Preparing exit to normal world\n");
+	print_entry_point_info(next_image_info);
 
 	psci_prepare_next_non_secure_ctx(next_image_info);
 	smc_set_next_ctx(NON_SECURE);
@@ -169,12 +172,26 @@ uintptr_t get_arm_std_svc_args(unsigned int svc_mask)
 }
 
 /******************************************************************************
+ * The SP_MIN setup function. Calls platforms init functions
+ *****************************************************************************/
+void sp_min_setup(u_register_t arg0, u_register_t arg1, u_register_t arg2,
+		  u_register_t arg3)
+{
+	/* Enable early console if EARLY_CONSOLE flag is enabled */
+	plat_setup_early_console();
+
+	/* Perform early platform-specific setup */
+	sp_min_early_platform_setup2(arg0, arg1, arg2, arg3);
+	sp_min_plat_arch_setup();
+}
+
+/******************************************************************************
  * The SP_MIN main function. Do the platform and PSCI Library setup. Also
  * initialize the runtime service framework.
  *****************************************************************************/
 void sp_min_main(void)
 {
-	NOTICE("SP_MIN: %s\n", version_string);
+	NOTICE("SP_MIN: %s\n", build_version_string);
 	NOTICE("SP_MIN: %s\n", build_message);
 
 	/* Perform the SP_MIN platform setup */
@@ -197,6 +214,7 @@ void sp_min_main(void)
 	sp_min_plat_runtime_setup();
 
 	console_flush();
+	console_switch_state(CONSOLE_FLAG_RUNTIME);
 }
 
 /******************************************************************************

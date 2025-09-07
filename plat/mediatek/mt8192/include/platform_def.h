@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2020-2024, ARM Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -25,6 +25,16 @@
 #define MTK_DEV_RNG2_SIZE    0x600000
 #define MTK_MCDI_SRAM_BASE      0x11B000
 #define MTK_MCDI_SRAM_MAP_SIZE  0x1000
+
+#define APUSYS_BASE                   0x19000000
+#define APUSYS_SCTRL_REVISER_BASE     0x19021000
+#define APUSYS_SCTRL_REVISER_SIZE     0x1000
+#define APUSYS_APU_S_S_4_BASE         0x190F2000
+#define APUSYS_APU_S_S_4_SIZE         0x1000
+#define APUSYS_APC_AO_WRAPPER_BASE    0x190F8000
+#define APUSYS_APC_AO_WRAPPER_SIZE    0x1000
+#define APUSYS_NOC_DAPC_AO_BASE       0x190FC000
+#define APUSYS_NOC_DAPC_AO_SIZE       0x1000
 
 #define TOPCKGEN_BASE            (IO_PHYS + 0x00000000)
 #define INFRACFG_AO_BASE         (IO_PHYS + 0x00001000)
@@ -71,6 +81,8 @@
 /* Base MTK_platform compatible GIC memory map */
 #define BASE_GICD_BASE        MT_GIC_BASE
 #define MT_GIC_RDIST_BASE     (MT_GIC_BASE + 0x40000)
+
+#define PLAT_MTK_G1S_IRQ_PROPS(grp)
 
 #define SYS_CIRQ_BASE         (IO_PHYS + 0x204000)
 #define CIRQ_REG_NUM          14

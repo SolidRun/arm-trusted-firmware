@@ -1,8 +1,10 @@
 #
-# Copyright (c) 2019-2020, Arm Limited. All rights reserved.
+# Copyright (c) 2019-2025, Arm Limited. All rights reserved.
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
+
+include common/fdt_wrappers.mk
 
 ifdef ARM_CORTEX_A5
 # Use the SP804 timer instead of the generic one
@@ -10,12 +12,7 @@ USE_SP804_TIMER	:= 1
 BL2_SOURCES		+=	drivers/arm/sp804/sp804_delay_timer.c
 endif
 
-# Include GICv2 driver files
-include drivers/arm/gic/v2/gicv2.mk
-
-FVP_VE_GIC_SOURCES	:=	${GICV2_SOURCES}		\
-				plat/common/plat_gicv2.c	\
-				plat/arm/common/arm_gicv2.c
+USE_GIC_DRIVER		:=	2
 
 FVP_VE_SECURITY_SOURCES	:=	plat/arm/board/fvp_ve/fvp_ve_security.c
 
@@ -94,6 +91,10 @@ endif
 
 NEED_BL32 := yes
 
+ifeq (${AARCH32_SP},none)
+    $(error Variable AARCH32_SP has to be set for AArch32)
+endif
+
 # Modification of arm_common.mk
 
 # Process ARM_DISABLE_TRUSTED_WDOG flag
@@ -125,10 +126,13 @@ endif
 # Firmware Configuration Framework sources
 include lib/fconf/fconf.mk
 
+BL1_SOURCES		+=	${FCONF_SOURCES} ${FCONF_DYN_SOURCES}
+BL2_SOURCES		+=	${FCONF_SOURCES} ${FCONF_DYN_SOURCES}
+
 # Add `libfdt` and Arm common helpers required for Dynamic Config
 include lib/libfdt/libfdt.mk
 
 DYN_CFG_SOURCES		+=	plat/arm/common/arm_dyn_cfg.c		\
-				plat/arm/common/arm_dyn_cfg_helpers.c	\
-				common/fdt_wrappers.c
+				plat/arm/common/arm_dyn_cfg_helpers.c
 
+DYN_CFG_SOURCES		+=	${FDT_WRAPPERS_SOURCES}

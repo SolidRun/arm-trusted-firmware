@@ -1,12 +1,13 @@
 /*
- * Copyright (c) 2015-2020, ARM Limited and Contributors. All rights reserved.
- * Copyright (c) 2020, NVIDIA Corporation. All rights reserved.
+ * Copyright (c) 2015-2024, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2020-2023, NVIDIA Corporation. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
 #include <assert.h>
 #include <errno.h>
+#include <inttypes.h>
 #include <stddef.h>
 #include <string.h>
 
@@ -91,21 +92,16 @@ plat_params_from_bl2_t *bl31_get_plat_params(void)
 void bl31_early_platform_setup2(u_register_t arg0, u_register_t arg1,
 				u_register_t arg2, u_register_t arg3)
 {
-	struct tegra_bl31_params *arg_from_bl2 = (struct tegra_bl31_params *) arg0;
-	plat_params_from_bl2_t *plat_params = (plat_params_from_bl2_t *)arg1;
+	struct tegra_bl31_params *arg_from_bl2 = plat_get_bl31_params();
+	plat_params_from_bl2_t *plat_params = plat_get_bl31_plat_params();
 	int32_t ret;
 
 	/*
-	 * For RESET_TO_BL31 systems, BL31 is the first bootloader to run so
-	 * there's no argument to relay from a previous bootloader. Platforms
-	 * might use custom ways to get arguments.
+	 * Tegra platforms will receive boot parameters through custom
+	 * mechanisms. So, we ignore the input parameters.
 	 */
-	if (arg_from_bl2 == NULL) {
-		arg_from_bl2 = plat_get_bl31_params();
-	}
-	if (plat_params == NULL) {
-		plat_params = plat_get_bl31_plat_params();
-	}
+	(void)arg0;
+	(void)arg1;
 
 	/*
 	 * Copy BL3-3, BL3-2 entry point information.
@@ -266,7 +262,7 @@ void bl31_plat_runtime_setup(void)
 
 /*******************************************************************************
  * Perform the very early platform specific architectural setup here. At the
- * moment this only intializes the mmu in a quick and dirty way.
+ * moment this only initializes the mmu in a quick and dirty way.
  ******************************************************************************/
 void bl31_plat_arch_setup(void)
 {
@@ -336,7 +332,7 @@ int32_t bl31_check_ns_address(uint64_t base, uint64_t size_in_bytes)
 	 * Sanity check the input values
 	 */
 	if ((base == 0U) || (size_in_bytes == 0U)) {
-		ERROR("NS address 0x%llx (%lld bytes) is invalid\n",
+		ERROR("NS address 0x%" PRIx64 " (%" PRId64 " bytes) is invalid\n",
 			base, size_in_bytes);
 		return -EINVAL;
 	}
@@ -347,7 +343,7 @@ int32_t bl31_check_ns_address(uint64_t base, uint64_t size_in_bytes)
 	if ((base < TEGRA_DRAM_BASE) || (base >= TEGRA_DRAM_END) ||
 	    (end > TEGRA_DRAM_END)) {
 
-		ERROR("NS address 0x%llx is out-of-bounds!\n", base);
+		ERROR("NS address 0x%" PRIx64 " is out-of-bounds!\n", base);
 		return -EFAULT;
 	}
 
@@ -356,7 +352,7 @@ int32_t bl31_check_ns_address(uint64_t base, uint64_t size_in_bytes)
 	 * to check if the NS DRAM range overlaps the TZDRAM aperture.
 	 */
 	if ((base < (uint64_t)TZDRAM_END) && (end > tegra_bl31_phys_base)) {
-		ERROR("NS address 0x%llx overlaps TZDRAM!\n", base);
+		ERROR("NS address 0x%" PRIx64 " overlaps TZDRAM!\n", base);
 		return -ENOTSUP;
 	}
 

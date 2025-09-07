@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2018-2024, ARM Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -68,12 +68,12 @@ func plat_crash_console_init
 	mov	x4, x30		/* x3 and x4 are not clobbered by spin_lock() */
 	mov	x3, #0		/* return value */
 
+	adrp	x0, crash_console_spinlock
+	add	x0, x0, :lo12:crash_console_spinlock
+
 	mrs	x1, sctlr_el3
 	tst	x1, #SCTLR_C_BIT
 	beq	skip_spinlock	/* can't synchronize when cache disabled */
-
-	adrp	x0, crash_console_spinlock
-	add	x0, x0, :lo12:crash_console_spinlock
 	bl	spin_lock
 
 skip_spinlock:
@@ -100,7 +100,7 @@ endfunc plat_crash_console_init
 	 * int plat_crash_console_putc(char c)
 	 * Prints the character on all consoles registered with the console
 	 * framework that have CONSOLE_FLAG_CRASH set. Note that this is only
-	 * helpful for crashes that occur after the platform intialization code
+	 * helpful for crashes that occur after the platform initialization code
 	 * has registered a console. Platforms using this implementation need to
 	 * ensure that all console drivers they use that have the CRASH flag set
 	 * support this (i.e. are written in assembly and comply to the register

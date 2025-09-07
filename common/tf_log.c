@@ -34,9 +34,9 @@ void tf_log(const char *fmt, ...)
 	assert((log_level > 0U) && (log_level <= LOG_LEVEL_VERBOSE));
 	assert((log_level % 10U) == 0U);
 
-	if (log_level > max_log_level)
+	if (log_level > max_log_level) {
 		return;
-
+	}
 	prefix_str = plat_log_get_prefix(log_level);
 
 	while (*prefix_str != '\0') {
@@ -47,6 +47,21 @@ void tf_log(const char *fmt, ...)
 	va_start(args, fmt);
 	(void)vprintf(fmt + 1, args);
 	va_end(args);
+}
+
+void tf_log_newline(const char log_fmt[2])
+{
+	unsigned int log_level = log_fmt[0];
+
+	/* Verify that log_level is one of LOG_MARKER_* macro defined in debug.h */
+	assert((log_level > 0U) && (log_level <= LOG_LEVEL_VERBOSE));
+	assert((log_level % 10U) == 0U);
+
+	if (log_level > max_log_level) {
+		return;
+	}
+
+	(void)putchar((int32_t)'\n');
 }
 
 /*

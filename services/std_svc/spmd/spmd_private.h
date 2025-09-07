@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2021, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2019-2025, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -7,6 +7,7 @@
 #ifndef SPMD_PRIVATE_H
 #define SPMD_PRIVATE_H
 
+#include <common/bl_common.h>
 #include <context.h>
 
 /*******************************************************************************
@@ -50,22 +51,38 @@ typedef struct spmd_spm_core_context {
 	uint64_t c_rt_ctx;
 	cpu_context_t cpu_ctx;
 	spmc_state_t state;
+	bool secure_interrupt_ongoing;
+	bool psci_operation_ongoing;
+#if ENABLE_SPMD_LP
+	uint8_t spmd_lp_sync_req_ongoing;
+#endif
 } spmd_spm_core_context_t;
+
+/* Flags to indicate ongoing requests for SPMD EL3 logical partitions */
+#define SPMD_LP_FFA_DIR_REQ_ONGOING		U(0x1)
+#define SPMD_LP_FFA_INFO_GET_REG_ONGOING	U(0x2)
 
 /*
  * Reserve ID for NS physical FFA Endpoint.
  */
 #define FFA_NS_ENDPOINT_ID			U(0)
 
-/* Mask and shift to check valid secure FF-A Endpoint ID. */
-#define SPMC_SECURE_ID_MASK			U(1)
-#define SPMC_SECURE_ID_SHIFT			U(15)
+/* Define SPMD target function IDs for framework messages to the SPMC */
+#define SPMD_FWK_MSG_FFA_VERSION_REQ		U(0x8)
+#define SPMD_FWK_MSG_FFA_VERSION_RESP		U(0x9)
 
-#define SPMD_DIRECT_MSG_ENDPOINT_ID		U(FFA_ENDPOINT_ID_MAX - 1)
+/* Function to build SPMD to SPMC message */
+void spmd_build_spmc_message(gp_regs_t *gpregs, uint8_t target,
+			     unsigned long long message);
 
 /* Functions used to enter/exit SPMC synchronously */
 uint64_t spmd_spm_core_sync_entry(spmd_spm_core_context_t *ctx);
 __dead2 void spmd_spm_core_sync_exit(uint64_t rc);
+
+bool is_spmd_logical_sp_dir_req_in_progress(const spmd_spm_core_context_t *ctx);
+
+bool is_spmd_logical_sp_info_regs_req_in_progress(
+		const spmd_spm_core_context_t *ctx);
 
 /* Assembly helpers */
 uint64_t spmd_spm_core_enter(uint64_t *c_rt_ctx);
@@ -88,6 +105,16 @@ spmd_spm_core_context_t *spmd_get_context(void);
 
 int spmd_pm_secondary_ep_register(uintptr_t entry_point);
 bool spmd_check_address_in_binary_image(uint64_t address);
+
+/*
+ * Platform hook in EL3 firmware to handle for Group0 secure interrupt.
+ * Return values:
+ *  0 = success
+ *  otherwise it returns a negative value
+ */
+int plat_spmd_handle_group0_interrupt(uint32_t id);
+
+uint64_t spmd_ffa_error_return(void *handle, int error_code);
 
 #endif /* __ASSEMBLER__ */
 

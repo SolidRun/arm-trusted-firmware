@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2014-2020, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2014-2020, Arm Limited and Contributors. All rights reserved.
+ * Copyright (c) 2023-2024, Advanced Micro Devices, Inc. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -12,17 +13,24 @@
 #include <bl31/interrupt_mgmt.h>
 #include <common/bl_common.h>
 #include <drivers/cadence/cdns_uart.h>
+#include <lib/xlat_tables/xlat_tables_v2.h>
 
 void zynqmp_config_setup(void);
 
-unsigned int zynqmp_calc_core_pos(u_register_t mpidr);
+const mmap_region_t *plat_get_mmap(void);
+
+uint32_t zynqmp_calc_core_pos(u_register_t mpidr);
 
 /* ZynqMP specific functions */
-unsigned int zynqmp_get_uart_clk(void);
-unsigned int zynqmp_get_bootmode(void);
-
+uint32_t get_uart_clk(void);
+uint32_t zynqmp_get_bootmode(void);
 
 #if ZYNQMP_WDT_RESTART
+typedef struct zynqmp_intr_info_type_el3 {
+	uint32_t id;
+	interrupt_type_handler_t handler;
+} zynmp_intr_info_type_el3_t;
+
 /*
  * Register handler to specific GIC entrance
  * for INTR_TYPE_EL3 type of interrupt

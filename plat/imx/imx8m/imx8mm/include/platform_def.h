@@ -1,10 +1,13 @@
 /*
- * Copyright (c) 2021, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2021-2022, ARM Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include <arch.h>
 #include <common/tbbr/tbbr_img_def.h>
+#include <lib/utils_def.h>
+#include <plat/common/common_def.h>
 
 #define PLATFORM_LINKER_FORMAT		"elf64-littleaarch64"
 #define PLATFORM_LINKER_ARCH		aarch64
@@ -38,25 +41,31 @@
 
 #if defined(NEED_BL2)
 #define BL2_BASE			U(0x920000)
-#define BL2_LIMIT			U(0x940000)
+#define BL2_SIZE			SZ_128K
+#define BL2_LIMIT			(BL2_BASE + BL2_SIZE)
 #define BL31_BASE			U(0x900000)
-#define BL31_LIMIT			U(0x920000)
-#define IMX8MM_FIP_BASE			U(0x40310000)
-#define IMX8MM_FIP_SIZE			U(0x000200000)
-#define IMX8MM_FIP_LIMIT		U(FIP_BASE + FIP_SIZE)
+#define IMX_FIP_BASE			U(0x40310000)
+#define IMX_FIP_SIZE			U(0x000300000)
+#define IMX_FIP_LIMIT			U(FIP_BASE + FIP_SIZE)
 
 /* Define FIP image location on eMMC */
-#define IMX8MM_FIP_MMC_BASE		U(0x100000)
+#define IMX_FIP_MMC_BASE		U(0x100000)
 
 #define PLAT_IMX8MM_BOOT_MMC_BASE	U(0x30B50000) /* SD */
 #else
 #define BL31_BASE			U(0x920000)
-#define BL31_LIMIT			U(0x940000)
 #endif
 
+#define BL31_SIZE			SZ_128K
+#define BL31_LIMIT			(BL31_BASE + BL31_SIZE)
+
 /* non-secure uboot base */
+#ifndef PLAT_NS_IMAGE_OFFSET
 #define PLAT_NS_IMAGE_OFFSET		U(0x40200000)
-#define PLAT_NS_IMAGE_SIZE		U(0x00100000)
+#endif
+#define PLAT_NS_IMAGE_SIZE		U(0x00200000)
+
+#define BL32_FDT_OVERLAY_ADDR		(PLAT_NS_IMAGE_OFFSET + 0x3000000)
 
 /* GICv3 base address */
 #define PLAT_GICD_BASE			U(0x38800000)
@@ -76,13 +85,18 @@
 #define PLAT_CRASH_UART_CLK_IN_HZ	24000000
 #define IMX_CONSOLE_BAUDRATE		115200
 
+#define IMX_UART1_BASE			U(0x30860000)
+#define IMX_UART2_BASE			U(0x30890000)
+#define IMX_UART3_BASE			U(0x30880000)
+#define IMX_UART4_BASE			U(0x30a60000)
+
 #define IMX_AIPSTZ1			U(0x301f0000)
 #define IMX_AIPSTZ2			U(0x305f0000)
 #define IMX_AIPSTZ3			U(0x309f0000)
 #define IMX_AIPSTZ4			U(0x32df0000)
 
 #define IMX_AIPS_BASE			U(0x30000000)
-#define IMX_AIPS_SIZE			U(0xC00000)
+#define IMX_AIPS_SIZE			U(0x3000000)
 #define IMX_GPV_BASE			U(0x32000000)
 #define IMX_GPV_SIZE			U(0x800000)
 #define IMX_AIPS1_BASE			U(0x30200000)
@@ -102,7 +116,19 @@
 #define IMX_DDRC_BASE			U(0x3d400000)
 #define IMX_DDRPHY_BASE			U(0x3c000000)
 #define IMX_DDR_IPS_BASE		U(0x3d000000)
+#define IMX_DDR_IPS_SIZE		U(0x1800000)
+#define IMX_VPUMIX_BASE			U(0x38330000)
+#define IMX_VPUMIX_SIZE			U(0x100000)
 #define IMX_ROM_BASE			U(0x0)
+#define IMX_ROM_SIZE			U(0x40000)
+#define IMX_NS_OCRAM_BASE		U(0x900000)
+#define IMX_NS_OCRAM_SIZE		U(0x20000)
+#define IMX_TCM_BASE			U(0x7E0000)
+#define IMX_TCM_SIZE			U(0x40000)
+#define IMX_CAAM_RAM_BASE		U(0x100000)
+#define IMX_CAAM_RAM_SIZE		U(0x10000)
+#define IMX_DRAM_BASE			U(0x40000000)
+#define IMX_DRAM_SIZE			U(0xc0000000)
 
 #define GPV_BASE			U(0x32000000)
 #define GPV_SIZE			U(0x800000)
@@ -124,6 +150,8 @@
 #define SRC_OTG1PHY_SCR			U(0x20)
 #define SRC_OTG2PHY_SCR			U(0x24)
 #define SRC_GPR1_OFFSET			U(0x74)
+#define SRC_GPR10_OFFSET		U(0x98)
+#define SRC_GPR10_PERSIST_SECONDARY_BOOT	BIT(30)
 
 #define SNVS_LPCR			U(0x38)
 #define SNVS_LPCR_SRTC_ENV		BIT(0)
@@ -135,12 +163,14 @@
 #define GPR_TZASC_EN_LOCK		BIT(16)
 
 #define ANAMIX_MISC_CTL			U(0x124)
+#define DRAM_PLL_CTRL			(IMX_ANAMIX_BASE + 0x50)
 
 #define MAX_CSU_NUM			U(64)
 
 #define OCRAM_S_BASE			U(0x00180000)
 #define OCRAM_S_SIZE			U(0x8000)
 #define OCRAM_S_LIMIT			(OCRAM_S_BASE + OCRAM_S_SIZE)
+#define SAVED_DRAM_TIMING_BASE		OCRAM_S_BASE
 
 #define COUNTER_FREQUENCY		8000000 /* 8MHz */
 
@@ -149,3 +179,7 @@
 #define MAX_IO_HANDLES			3U
 #define MAX_IO_DEVICES			2U
 #define MAX_IO_BLOCK_DEVICES		1U
+
+#define PLAT_IMX8M_DTO_BASE		0x53000000
+#define PLAT_IMX8M_DTO_MAX_SIZE		0x1000
+#define PLAT_IMX_EVENT_LOG_MAX_SIZE	UL(0x400)

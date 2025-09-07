@@ -1,5 +1,5 @@
 #
-# Copyright 2020 NXP
+# Copyright 2021 NXP
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
@@ -8,7 +8,8 @@
 ###############################################################################
 
 
-PLAT_DRIVERS_PATH	:=	drivers/nxp
+PLAT_DRIVERS_PATH		:=	drivers/nxp
+PLAT_DRIVERS_INCLUDE_PATH	:=	include/drivers/nxp
 
 ifeq (${SMMU_NEEDED},yes)
 PLAT_INCLUDES	+= -Iinclude/drivers/nxp/smmu/
@@ -87,4 +88,16 @@ endif
 
 ifeq (${GPIO_NEEDED},yes)
 include ${PLAT_DRIVERS_PATH}/gpio/gpio.mk
+endif
+
+ifeq (${IFC_NOR_NEEDED},yes)
+include ${PLAT_DRIVERS_PATH}/ifc/nor/ifc_nor.mk
+endif
+
+ifeq (${IFC_NAND_NEEDED},yes)
+include ${PLAT_DRIVERS_PATH}/ifc/nand/ifc_nand.mk
+endif
+
+ifeq (${CLK_NEEDED},yes)
+include ${PLAT_DRIVERS_PATH}/clk/s32cc/s32cc_clk.mk
 endif

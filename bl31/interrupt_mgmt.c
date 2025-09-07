@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014-2020, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2014-2023, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -34,7 +34,7 @@
  *
  *           All other bits are reserved and SBZ.
  ******************************************************************************/
-typedef struct intr_type_desc {
+typedef struct {
 	interrupt_type_handler_t handler;
 	u_register_t scr_el3[2];
 	uint32_t flags;
@@ -47,9 +47,9 @@ static intr_type_desc_t intr_type_descs[MAX_INTR_TYPES];
  ******************************************************************************/
 static int32_t validate_interrupt_type(uint32_t type)
 {
-	if ((type == INTR_TYPE_S_EL1) || (type == INTR_TYPE_NS) ||
-	    (type == INTR_TYPE_EL3))
+	if (plat_ic_has_interrupt_type(type)) {
 		return 0;
+	}
 
 	return -EINVAL;
 }
@@ -219,9 +219,9 @@ int32_t register_interrupt_type_handler(uint32_t type,
  ******************************************************************************/
 interrupt_type_handler_t get_interrupt_type_handler(uint32_t type)
 {
-	if (validate_interrupt_type(type) != 0)
+	if (validate_interrupt_type(type) != 0) {
 		return NULL;
-
+	}
 	return intr_type_descs[type].handler;
 }
 

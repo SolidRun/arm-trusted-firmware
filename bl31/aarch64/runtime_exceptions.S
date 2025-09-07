@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2021, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2013-2025, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -10,8 +10,10 @@
 #include <asm_macros.S>
 #include <bl31/ea_handle.h>
 #include <bl31/interrupt_mgmt.h>
+#include <bl31/sync_handle.h>
 #include <common/runtime_svc.h>
 #include <context.h>
+#include <cpu_macros.S>
 #include <el3_common_macros.S>
 #include <lib/el3_runtime/cpu_data.h>
 #include <lib/smccc.h>
@@ -39,129 +41,38 @@
 	.globl	serror_aarch32
 
 	/*
-	 * Macro that prepares entry to EL3 upon taking an exception.
-	 *
-	 * With RAS_EXTENSION, this macro synchronizes pending errors with an ESB
-	 * instruction. When an error is thus synchronized, the handling is
-	 * delegated to platform EA handler.
-	 *
-	 * Without RAS_EXTENSION, this macro synchronizes pending errors using
-         * a DSB, unmasks Asynchronous External Aborts and saves X30 before
-	 * setting the flag CTX_IS_IN_EL3.
+	 * Save LR and make x30 available as most of the routines in vector entry
+	 * need a free register
 	 */
-	.macro check_and_unmask_ea
-#if RAS_EXTENSION
-	/* Synchronize pending External Aborts */
-	esb
-
-	/* Unmask the SError interrupt */
-	msr	daifclr, #DAIF_ABT_BIT
-
-	/*
-	 * Explicitly save x30 so as to free up a register and to enable
-	 * branching
-	 */
+	.macro save_x30
 	str	x30, [sp, #CTX_GPREGS_OFFSET + CTX_GPREG_LR]
+	.endm
 
-	/* Check for SErrors synchronized by the ESB instruction */
-	mrs	x30, DISR_EL1
-	tbz	x30, #DISR_A_BIT, 1f
+	.macro restore_x30
+	ldr	x30, [sp, #CTX_GPREGS_OFFSET + CTX_GPREG_LR]
+	.endm
 
 	/*
-	 * Save general purpose and ARMv8.3-PAuth registers (if enabled).
-	 * If Secure Cycle Counter is not disabled in MDCR_EL3 when
-	 * ARMv8.5-PMU is implemented, save PMCR_EL0 and disable Cycle Counter.
+	 * Macro that synchronizes errors (EA) and checks for pending SError.
+	 * On detecting a pending SError it either reflects it back to lower
+	 * EL (KFH) or handles it in EL3 (FFH) based on EA routing model.
 	 */
-	bl	save_gp_pmcr_pauth_regs
-
-	bl	handle_lower_el_ea_esb
-
-	/* Restore general purpose, PMCR_EL0 and ARMv8.3-PAuth registers */
-	bl	restore_gp_pmcr_pauth_regs
+	.macro	sync_and_handle_pending_serror
+	synchronize_errors
+	mrs	x30, ISR_EL1
+	tbz	x30, #ISR_A_SHIFT, 2f
+#if FFH_SUPPORT
+	mrs	x30, scr_el3
+	tst	x30, #SCR_EA_BIT
+	b.eq	1f
+	bl	handle_pending_async_ea
+	b	2f
+#endif
 1:
-#else
-	/*
-	 * For SoCs which do not implement RAS, use DSB as a barrier to
-	 * synchronize pending external aborts.
-	 */
-	dsb	sy
-
-	/* Unmask the SError interrupt */
-	msr	daifclr, #DAIF_ABT_BIT
-
-	/* Use ISB for the above unmask operation to take effect immediately */
-	isb
-
-	/*
-	 * Refer Note 1. No need to restore X30 as both handle_sync_exception
-	 * and handle_interrupt_exception macro which follow this macro modify
-	 * X30 anyway.
-	 */
-	str	x30, [sp, #CTX_GPREGS_OFFSET + CTX_GPREG_LR]
-	mov 	x30, #1
-	str	x30, [sp, #CTX_EL3STATE_OFFSET + CTX_IS_IN_EL3]
-	dmb	sy
-#endif
+	/* This function never returns, but need LR for decision making */
+	bl	reflect_pending_async_ea_to_lower_el
+2:
 	.endm
-
-#if !RAS_EXTENSION
-	/*
-	 * Note 1: The explicit DSB at the entry of various exception vectors
-	 * for handling exceptions from lower ELs can inadvertently trigger an
-	 * SError exception in EL3 due to pending asynchronous aborts in lower
-	 * ELs. This will end up being handled by serror_sp_elx which will
-	 * ultimately panic and die.
-	 * The way to workaround is to update a flag to indicate if the exception
-	 * truly came from EL3. This flag is allocated in the cpu_context
-	 * structure and located at offset "CTX_EL3STATE_OFFSET + CTX_IS_IN_EL3"
-	 * This is not a bullet proof solution to the problem at hand because
-	 * we assume the instructions following "isb" that help to update the
-	 * flag execute without causing further exceptions.
-	 */
-
-	/* ---------------------------------------------------------------------
-	 * This macro handles Asynchronous External Aborts.
-	 * ---------------------------------------------------------------------
-	 */
-	.macro	handle_async_ea
-	/*
-	 * Use a barrier to synchronize pending external aborts.
-	 */
-	dsb	sy
-
-	/* Unmask the SError interrupt */
-	msr	daifclr, #DAIF_ABT_BIT
-
-	/* Use ISB for the above unmask operation to take effect immediately */
-	isb
-
-	/* Refer Note 1 */
-	str	x30, [sp, #CTX_GPREGS_OFFSET + CTX_GPREG_LR]
-	mov 	x30, #1
-	str	x30, [sp, #CTX_EL3STATE_OFFSET + CTX_IS_IN_EL3]
-	dmb	sy
-
-	b	handle_lower_el_async_ea
-	.endm
-
-	/*
-	 * This macro checks if the exception was taken due to SError in EL3 or
-	 * because of pending asynchronous external aborts from lower EL that got
-	 * triggered due to explicit synchronization in EL3. Refer Note 1.
-	 */
-	.macro check_if_serror_from_EL3
-	/* Assumes SP_EL3 on entry */
-	str	x30, [sp, #CTX_GPREGS_OFFSET + CTX_GPREG_LR]
-	ldr	x30, [sp, #CTX_EL3STATE_OFFSET + CTX_IS_IN_EL3]
-	cbnz	x30, exp_from_EL3
-
-	/* Handle asynchronous external abort from lower EL */
-	b	handle_lower_el_async_ea
-
-exp_from_EL3:
-	/* Jump to plat_handle_el3_ea which does not return */
-	.endm
-#endif
 
 	/* ---------------------------------------------------------------------
 	 * This macro handles Synchronous exceptions.
@@ -190,99 +101,25 @@ exp_from_EL3:
 	b.eq	smc_handler32
 
 	cmp	x30, #EC_AARCH64_SMC
-	b.eq	smc_handler64
+	b.eq	sync_handler64
 
-	/* Synchronous exceptions other than the above are assumed to be EA */
-	ldr	x30, [sp, #CTX_GPREGS_OFFSET + CTX_GPREG_LR]
-	b	enter_lower_el_sync_ea
-	.endm
+	cmp	x30, #EC_AARCH64_SYS
+	b.eq	sync_handler64
 
+	cmp	x30, #EC_IMP_DEF_EL3
+	b.eq	imp_def_el3_handler
 
-	/* ---------------------------------------------------------------------
-	 * This macro handles FIQ or IRQ interrupts i.e. EL3, S-EL1 and NS
-	 * interrupts.
-	 * ---------------------------------------------------------------------
-	 */
-	.macro	handle_interrupt_exception label
-
-	/*
-	 * Save general purpose and ARMv8.3-PAuth registers (if enabled).
-	 * If Secure Cycle Counter is not disabled in MDCR_EL3 when
-	 * ARMv8.5-PMU is implemented, save PMCR_EL0 and disable Cycle Counter.
-	 */
-	bl	save_gp_pmcr_pauth_regs
-
-#if ENABLE_PAUTH
-	/* Load and program APIAKey firmware key */
-	bl	pauth_load_bl31_apiakey
+	/* If FFH Support then try to handle lower EL EA exceptions. */
+#if FFH_SUPPORT
+	mrs	x30, scr_el3
+	tst	x30, #SCR_EA_BIT
+	b.eq	1f
+	b	handle_lower_el_sync_ea
 #endif
-
-	/* Save the EL3 system registers needed to return from this exception */
-	mrs	x0, spsr_el3
-	mrs	x1, elr_el3
-	stp	x0, x1, [sp, #CTX_EL3STATE_OFFSET + CTX_SPSR_EL3]
-
-	/* Switch to the runtime stack i.e. SP_EL0 */
-	ldr	x2, [sp, #CTX_EL3STATE_OFFSET + CTX_RUNTIME_SP]
-	mov	x20, sp
-	msr	spsel, #MODE_SP_EL0
-	mov	sp, x2
-
-	/*
-	 * Find out whether this is a valid interrupt type.
-	 * If the interrupt controller reports a spurious interrupt then return
-	 * to where we came from.
-	 */
-	bl	plat_ic_get_pending_interrupt_type
-	cmp	x0, #INTR_TYPE_INVAL
-	b.eq	interrupt_exit_\label
-
-	/*
-	 * Get the registered handler for this interrupt type.
-	 * A NULL return value could be 'cause of the following conditions:
-	 *
-	 * a. An interrupt of a type was routed correctly but a handler for its
-	 *    type was not registered.
-	 *
-	 * b. An interrupt of a type was not routed correctly so a handler for
-	 *    its type was not registered.
-	 *
-	 * c. An interrupt of a type was routed correctly to EL3, but was
-	 *    deasserted before its pending state could be read. Another
-	 *    interrupt of a different type pended at the same time and its
-	 *    type was reported as pending instead. However, a handler for this
-	 *    type was not registered.
-	 *
-	 * a. and b. can only happen due to a programming error. The
-	 * occurrence of c. could be beyond the control of Trusted Firmware.
-	 * It makes sense to return from this exception instead of reporting an
-	 * error.
-	 */
-	bl	get_interrupt_type_handler
-	cbz	x0, interrupt_exit_\label
-	mov	x21, x0
-
-	mov	x0, #INTR_ID_UNAVAILABLE
-
-	/* Set the current security state in the 'flags' parameter */
-	mrs	x2, scr_el3
-	ubfx	x1, x2, #0, #1
-
-	/* Restore the reference to the 'handle' i.e. SP_EL3 */
-	mov	x2, x20
-
-	/* x3 will point to a cookie (not used now) */
-	mov	x3, xzr
-
-	/* Call the interrupt type handler */
-	blr	x21
-
-interrupt_exit_\label:
-	/* Return from exception, possibly in a different security state */
-	b	el3_exit
-
+1:
+	/* Synchronous exceptions other than the above are unhandled */
+	b	report_unhandled_exception
 	.endm
-
 
 vector_base runtime_exceptions
 
@@ -349,10 +186,33 @@ vector_entry fiq_sp_elx
 end_vector_entry fiq_sp_elx
 
 vector_entry serror_sp_elx
-#if !RAS_EXTENSION
-	check_if_serror_from_EL3
+#if FFH_SUPPORT
+	/*
+	 * This will trigger if the exception was taken due to SError in EL3 or
+	 * because of pending asynchronous external aborts from lower EL that got
+	 * triggered due to implicit/explicit synchronization in EL3 (SCR_EL3.EA=1)
+	 * during EL3 entry. For the former case we continue with "plat_handle_el3_ea".
+	 * The later case will occur when PSTATE.A bit is cleared in
+	 * "handle_pending_async_ea". This means we are doing a nested
+	 * exception in EL3. Call the handler for async EA which will eret back to
+	 * original el3 handler if it is nested exception. Also, unmask EA so that we
+	 * catch any further EA arise when handling this nested exception at EL3.
+	 */
+	save_x30
+	ldr	x30, [sp, #CTX_EL3STATE_OFFSET + CTX_NESTED_EA_FLAG]
+	cbz	x30, 1f
+	/*
+	 * This is nested exception handling, clear the flag to avoid taking this
+	 * path for further exceptions caused by EA handling
+	 */
+	str	xzr, [sp, #CTX_EL3STATE_OFFSET + CTX_NESTED_EA_FLAG]
+	unmask_async_ea
+	b	handle_lower_el_async_ea
+1:
+	restore_x30
 #endif
 	no_ret	plat_handle_el3_ea
+
 end_vector_entry serror_sp_elx
 
 	/* ---------------------------------------------------------------------
@@ -366,30 +226,38 @@ vector_entry sync_exception_aarch64
 	 * to a valid cpu context where the general purpose and system register
 	 * state can be saved.
 	 */
+	save_x30
 	apply_at_speculative_wa
-	check_and_unmask_ea
+	sync_and_handle_pending_serror
 	handle_sync_exception
 end_vector_entry sync_exception_aarch64
 
 vector_entry irq_aarch64
+	save_x30
 	apply_at_speculative_wa
-	check_and_unmask_ea
-	handle_interrupt_exception irq_aarch64
+	sync_and_handle_pending_serror
+	b	handle_interrupt_exception
 end_vector_entry irq_aarch64
 
 vector_entry fiq_aarch64
+	save_x30
 	apply_at_speculative_wa
-	check_and_unmask_ea
-	handle_interrupt_exception fiq_aarch64
+	sync_and_handle_pending_serror
+	b 	handle_interrupt_exception
 end_vector_entry fiq_aarch64
 
+	/*
+	 * Need to synchronize any outstanding SError since we can get a burst of errors.
+	 * So reuse the sync mechanism to catch any further errors which are pending.
+	 */
 vector_entry serror_aarch64
+#if FFH_SUPPORT
+	save_x30
 	apply_at_speculative_wa
-#if RAS_EXTENSION
-	msr	daifclr, #DAIF_ABT_BIT
-	b	enter_lower_el_async_ea
+	sync_and_handle_pending_serror
+	b	handle_lower_el_async_ea
 #else
-	handle_async_ea
+	b	report_unhandled_exception
 #endif
 end_vector_entry serror_aarch64
 
@@ -404,30 +272,38 @@ vector_entry sync_exception_aarch32
 	 * to a valid cpu context where the general purpose and system register
 	 * state can be saved.
 	 */
+	save_x30
 	apply_at_speculative_wa
-	check_and_unmask_ea
+	sync_and_handle_pending_serror
 	handle_sync_exception
 end_vector_entry sync_exception_aarch32
 
 vector_entry irq_aarch32
+	save_x30
 	apply_at_speculative_wa
-	check_and_unmask_ea
-	handle_interrupt_exception irq_aarch32
+	sync_and_handle_pending_serror
+	b	handle_interrupt_exception
 end_vector_entry irq_aarch32
 
 vector_entry fiq_aarch32
+	save_x30
 	apply_at_speculative_wa
-	check_and_unmask_ea
-	handle_interrupt_exception fiq_aarch32
+	sync_and_handle_pending_serror
+	b	handle_interrupt_exception
 end_vector_entry fiq_aarch32
 
+	/*
+	 * Need to synchronize any outstanding SError since we can get a burst of errors.
+	 * So reuse the sync mechanism to catch any further errors which are pending.
+	 */
 vector_entry serror_aarch32
+#if FFH_SUPPORT
+	save_x30
 	apply_at_speculative_wa
-#if RAS_EXTENSION
-	msr	daifclr, #DAIF_ABT_BIT
-	b	enter_lower_el_async_ea
+	sync_and_handle_pending_serror
+	b	handle_lower_el_async_ea
 #else
-	handle_async_ea
+	b	report_unhandled_exception
 #endif
 end_vector_entry serror_aarch32
 
@@ -450,25 +326,19 @@ brk_message:
 	 * Note that x30 has been explicitly saved and can be used here
 	 * ---------------------------------------------------------------------
 	 */
-func smc_handler
+func sync_exception_handler
 smc_handler32:
 	/* Check whether aarch32 issued an SMC64 */
 	tbnz	x0, #FUNCID_CC_SHIFT, smc_prohibited
 
-smc_handler64:
+sync_handler64:
 	/* NOTE: The code below must preserve x0-x4 */
 
 	/*
 	 * Save general purpose and ARMv8.3-PAuth registers (if enabled).
-	 * If Secure Cycle Counter is not disabled in MDCR_EL3 when
-	 * ARMv8.5-PMU is implemented, save PMCR_EL0 and disable Cycle Counter.
+	 * Also save PMCR_EL0 and  set the PSTATE to a known state.
 	 */
-	bl	save_gp_pmcr_pauth_regs
-
-#if ENABLE_PAUTH
-	/* Load and program APIAKey firmware key */
-	bl	pauth_load_bl31_apiakey
-#endif
+	bl	prepare_el3_entry
 
 	/*
 	 * Populate the parameters for the SMC handler.
@@ -490,20 +360,63 @@ smc_handler64:
 	msr	spsel, #MODE_SP_EL0
 
 	/*
-	 * Save the SPSR_EL3, ELR_EL3, & SCR_EL3 in case there is a world
+	 * Save the SPSR_EL3 and ELR_EL3 in case there is a world
 	 * switch during SMC handling.
 	 * TODO: Revisit if all system registers can be saved later.
 	 */
 	mrs	x16, spsr_el3
 	mrs	x17, elr_el3
-	mrs	x18, scr_el3
 	stp	x16, x17, [x6, #CTX_EL3STATE_OFFSET + CTX_SPSR_EL3]
-	str	x18, [x6, #CTX_EL3STATE_OFFSET + CTX_SCR_EL3]
+
+	/* Load SCR_EL3 */
+	mrs	x18, scr_el3
+
+	/* check for system register traps */
+	mrs	x16, esr_el3
+	ubfx	x17, x16, #ESR_EC_SHIFT, #ESR_EC_LENGTH
+	cmp	x17, #EC_AARCH64_SYS
+	b.eq	sysreg_handler64
+
+	/* Clear flag register */
+	mov	x7, xzr
+
+#if ENABLE_RME
+	/* Copy SCR_EL3.NSE bit to the flag to indicate caller's security */
+	ubfx	x7, x18, #SCR_NSE_SHIFT, #1
+
+	/*
+	 * Shift copied SCR_EL3.NSE bit by 5 to create space for
+	 * SCR_EL3.NS bit. Bit 5 of the flag corresponds to
+	 * the SCR_EL3.NSE bit.
+	 */
+	lsl	x7, x7, #5
+#endif /* ENABLE_RME */
 
 	/* Copy SCR_EL3.NS bit to the flag to indicate caller's security */
 	bfi	x7, x18, #0, #1
 
 	mov	sp, x12
+
+	/*
+	 * Per SMCCC documentation, bits [23:17] must be zero for Fast
+	 * SMCs. Other values are reserved for future use. Ensure that
+	 * these bits are zeroes, if not report as unknown SMC.
+	 */
+	tbz	x0, #FUNCID_TYPE_SHIFT, 2f  /* Skip check if its a Yield Call*/
+	tst	x0, #(FUNCID_FC_RESERVED_MASK << FUNCID_FC_RESERVED_SHIFT)
+	b.ne	smc_unknown
+
+	/*
+	 * Per SMCCCv1.3 a caller can set the SVE hint bit in the SMC FID
+	 * passed through x0. Copy the SVE hint bit to flags and mask the
+	 * bit in smc_fid passed to the standard service dispatcher.
+	 * A service/dispatcher can retrieve the SVE hint bit state from
+	 * flags using the appropriate helper.
+	 */
+2:
+	and	x16, x0, #(FUNCID_SVE_HINT_MASK << FUNCID_SVE_HINT_SHIFT)
+	orr	x7, x7, x16
+	bic	x0, x0, #(FUNCID_SVE_HINT_MASK << FUNCID_SVE_HINT_SHIFT)
 
 	/* Get the unique owning entity number */
 	ubfx	x16, x0, #FUNCID_OEN_SHIFT, #FUNCID_OEN_WIDTH
@@ -524,7 +437,7 @@ smc_handler64:
 	 *
 	 * handler = (base + off) + (index << log2(size))
 	 */
-	adr	x11, (__RT_SVC_DESCS_START__ + RT_SVC_DESC_HANDLE)
+	adr_l	x11, (__RT_SVC_DESCS_START__ + RT_SVC_DESC_HANDLE)
 	lsl	w10, w15, #RT_SVC_SIZE_LOG2
 	ldr	x15, [x11, w10, uxtw]
 
@@ -540,12 +453,50 @@ smc_handler64:
 
 	b	el3_exit
 
+sysreg_handler64:
+	mov	x0, x16		/* ESR_EL3, containing syndrome information */
+	mov	x1, x6		/* lower EL's context */
+	mov	x19, x6		/* save context pointer for after the call */
+	mov	sp, x12		/* EL3 runtime stack, as loaded above */
+
+	/* int handle_sysreg_trap(uint64_t esr_el3, cpu_context_t *ctx); */
+	bl	handle_sysreg_trap
+	/*
+	 * returns:
+	 *   -1: unhandled trap, UNDEF injection into lower EL
+	 *    0: handled trap, return to the trapping instruction (repeating it)
+	 *    1: handled trap, return to the next instruction
+	 */
+
+	tst	w0, w0
+	b.mi	2f	/* negative: undefined exception injection */
+
+	b.eq	1f	/* zero: do not change ELR_EL3 */
+	/* positive: advance the PC to continue after the instruction */
+	ldr	x1, [x19, #CTX_EL3STATE_OFFSET + CTX_ELR_EL3]
+	add	x1, x1, #4
+	str	x1, [x19, #CTX_EL3STATE_OFFSET + CTX_ELR_EL3]
+1:
+	b	el3_exit
+2:
+	/*
+	 * UNDEF injection to lower EL, the support is only provided for lower
+	 * EL in AArch64 mode, for AArch32 mode it will do elx_panic as before.
+	 */
+	mrs	x0, spsr_el3
+	tst	x0, #(SPSR_M_MASK << SPSR_M_SHIFT)
+	b.ne	elx_panic
+	/* Pass context pointer as an argument to inject_undef64 */
+	mov	x0, x19
+	bl	inject_undef64
+	b	el3_exit
+
 smc_unknown:
 	/*
 	 * Unknown SMC call. Populate return value with SMC_UNK and call
 	 * el3_exit() which will restore the remaining architectural state
 	 * i.e., SYS, GP and PAuth registers(if any) prior to issuing the ERET
-         * to the desired lower EL.
+	 * to the desired lower EL.
 	 */
 	mov	x0, #SMC_UNK
 	str	x0, [x6, #CTX_GPREGS_OFFSET + CTX_GPREG_X0]
@@ -564,7 +515,194 @@ rt_svc_fw_critical_error:
 	msr	spsel, #MODE_SP_ELX
 	no_ret	report_unhandled_exception
 #endif
-endfunc smc_handler
+endfunc sync_exception_handler
+
+	/* ---------------------------------------------------------------------
+	 * This function handles FIQ or IRQ interrupts i.e. EL3, S-EL1 and NS
+	 * interrupts.
+	 *
+	 * Note that x30 has been explicitly saved and can be used here
+	 * ---------------------------------------------------------------------
+	 */
+func handle_interrupt_exception
+	/*
+	 * Save general purpose and ARMv8.3-PAuth registers (if enabled).
+	 * Also save PMCR_EL0 and  set the PSTATE to a known state.
+	 */
+	bl	prepare_el3_entry
+
+	/* Save the EL3 system registers needed to return from this exception */
+	mrs	x0, spsr_el3
+	mrs	x1, elr_el3
+	stp	x0, x1, [sp, #CTX_EL3STATE_OFFSET + CTX_SPSR_EL3]
+
+	/* Switch to the runtime stack i.e. SP_EL0 */
+	ldr	x2, [sp, #CTX_EL3STATE_OFFSET + CTX_RUNTIME_SP]
+	mov	x20, sp
+	msr	spsel, #MODE_SP_EL0
+	mov	sp, x2
+
+	/*
+	 * Find out whether this is a valid interrupt type.
+	 * If the interrupt controller reports a spurious interrupt then return
+	 * to where we came from.
+	 */
+	bl	plat_ic_get_pending_interrupt_type
+	cmp	x0, #INTR_TYPE_INVAL
+	b.eq	interrupt_exit
+
+	/*
+	 * Get the registered handler for this interrupt type.
+	 * A NULL return value could be 'cause of the following conditions:
+	 *
+	 * a. An interrupt of a type was routed correctly but a handler for its
+	 *    type was not registered.
+	 *
+	 * b. An interrupt of a type was not routed correctly so a handler for
+	 *    its type was not registered.
+	 *
+	 * c. An interrupt of a type was routed correctly to EL3, but was
+	 *    deasserted before its pending state could be read. Another
+	 *    interrupt of a different type pended at the same time and its
+	 *    type was reported as pending instead. However, a handler for this
+	 *    type was not registered.
+	 *
+	 * a. and b. can only happen due to a programming error. The
+	 * occurrence of c. could be beyond the control of Trusted Firmware.
+	 * It makes sense to return from this exception instead of reporting an
+	 * error.
+	 */
+	bl	get_interrupt_type_handler
+	cbz	x0, interrupt_exit
+	mov	x21, x0
+
+	mov	x0, #INTR_ID_UNAVAILABLE
+
+	/* Set the current security state in the 'flags' parameter */
+	mrs	x2, scr_el3
+	ubfx	x1, x2, #0, #1
+
+	/* Restore the reference to the 'handle' i.e. SP_EL3 */
+	mov	x2, x20
+
+	/* x3 will point to a cookie (not used now) */
+	mov	x3, xzr
+
+	/* Call the interrupt type handler */
+	blr	x21
+
+interrupt_exit:
+	/* Return from exception, possibly in a different security state */
+	b	el3_exit
+endfunc handle_interrupt_exception
+
+func imp_def_el3_handler
+	/* Save GP registers */
+	stp	x0, x1, [sp, #CTX_GPREGS_OFFSET + CTX_GPREG_X0]
+	stp	x2, x3, [sp, #CTX_GPREGS_OFFSET + CTX_GPREG_X2]
+	stp	x4, x5, [sp, #CTX_GPREGS_OFFSET + CTX_GPREG_X4]
+
+	/* Get the cpu_ops pointer */
+	bl	get_cpu_ops_ptr
+
+	/* Get the cpu_ops exception handler */
+	ldr	x0, [x0, #CPU_E_HANDLER_FUNC]
+
+	/*
+	 * If the reserved function pointer is NULL, this CPU does not have an
+	 * implementation defined exception handler function
+	 */
+	cbz	x0, el3_handler_exit
+	mrs	x1, esr_el3
+	ubfx	x1, x1, #ESR_EC_SHIFT, #ESR_EC_LENGTH
+	blr	x0
+el3_handler_exit:
+	ldp	x0, x1, [sp, #CTX_GPREGS_OFFSET + CTX_GPREG_X0]
+	ldp	x2, x3, [sp, #CTX_GPREGS_OFFSET + CTX_GPREG_X2]
+	ldp	x4, x5, [sp, #CTX_GPREGS_OFFSET + CTX_GPREG_X4]
+	restore_x30
+	no_ret	report_unhandled_exception
+endfunc imp_def_el3_handler
+
+/*
+ * Handler for async EA from lower EL synchronized at EL3 entry in KFH mode.
+ *
+ * This scenario may arise when there is an error (EA) in the system which is not
+ * yet signaled to PE while executing in lower EL. During entry into EL3, the errors
+ * are synchronized either implicitly or explicitly causing async EA to pend at EL3.
+ *
+ * On detecting the pending EA (via ISR_EL1.A) and if the EA routing model is
+ * KFH (SCR_EL3.EA = 1) this handler reflects ther error back to lower EL.
+ *
+ * This function assumes x30 has been saved.
+ */
+func reflect_pending_async_ea_to_lower_el
+	/*
+	 * As the original exception was not handled we need to ensure that we return
+	 * back to the instruction which caused the exception. To acheive that, eret
+	 * to "elr-4" (Label "subtract_elr_el3") for SMC or simply eret otherwise
+	 * (Label "skip_smc_check").
+	 *
+	 * LIMITATION: It could be that async EA is masked at the target exception level
+	 * or the priority of async EA wrt to the EL3/secure interrupt is lower, which
+	 * causes back and forth between lower EL and EL3. In case of back and forth between
+	 * lower EL and EL3, we can track the loop count in "CTX_NESTED_EA_FLAG" and leverage
+	 * previous ELR in "CTX_SAVED_ELR_EL3" to detect this cycle and further panic
+	 * to indicate a problem here (Label "check_loop_ctr"). If we are in this cycle, loop
+	 * counter retains its value but if we do a normal el3_exit this flag gets cleared.
+	 * However, setting SCR_EL3.IESB = 1, should give priority to SError handling
+	 * as per AArch64.TakeException pseudo code in Arm ARM.
+	 *
+	 * TODO: In future if EL3 gets a capability to inject a virtual SError to lower
+	 * ELs, we can remove the el3_panic and handle the original exception first and
+	 * inject SError to lower EL before ereting back.
+	 */
+	stp	x28, x29, [sp, #CTX_GPREGS_OFFSET + CTX_GPREG_X28]
+	ldr	x29, [sp, #CTX_EL3STATE_OFFSET + CTX_SAVED_ELR_EL3]
+	mrs	x28, elr_el3
+	cmp	x29, x28
+	b.eq	check_loop_ctr
+	str	x28, [sp, #CTX_EL3STATE_OFFSET + CTX_SAVED_ELR_EL3]
+	/* Zero the loop counter */
+	str	xzr, [sp, #CTX_EL3STATE_OFFSET + CTX_NESTED_EA_FLAG]
+	b	skip_loop_ctr
+check_loop_ctr:
+	ldr	x29, [sp, #CTX_EL3STATE_OFFSET + CTX_NESTED_EA_FLAG]
+	add	x29, x29, #1
+	str	x29, [sp, #CTX_EL3STATE_OFFSET + CTX_NESTED_EA_FLAG]
+	cmp	x29, #ASYNC_EA_REPLAY_COUNTER
+	b.ge	el3_panic
+skip_loop_ctr:
+	/*
+	 * Logic to distinguish if we came from SMC or any other exception.
+	 * Use offsets in vector entry to get which exception we are handling.
+	 * In each vector entry of size 0x200, address "0x0-0x80" is for sync
+	 * exception and "0x80-0x200" is for async exceptions.
+	 * Use vector base address (vbar_el3) and exception offset (LR) to
+	 * calculate whether the address we came from is any of the following
+	 * "0x0-0x80", "0x200-0x280", "0x400-0x480" or "0x600-0x680"
+	 */
+	mrs	x29, vbar_el3
+	sub	x30, x30, x29
+	and	x30, x30, #0x1ff
+	cmp	x30, #0x80
+	b.ge	skip_smc_check
+	/* Its a synchronous exception, Now check if it is SMC or not? */
+	mrs	x30, esr_el3
+	ubfx	x30, x30, #ESR_EC_SHIFT, #ESR_EC_LENGTH
+	cmp	x30, #EC_AARCH32_SMC
+	b.eq	subtract_elr_el3
+	cmp	x30, #EC_AARCH64_SMC
+	b.eq	subtract_elr_el3
+	b	skip_smc_check
+subtract_elr_el3:
+	sub	x28, x28, #4
+skip_smc_check:
+	msr	elr_el3, x28
+	ldp	x28, x29, [sp, #CTX_GPREGS_OFFSET + CTX_GPREG_X28]
+	ldr	x30, [sp, #CTX_GPREGS_OFFSET + CTX_GPREG_LR]
+	exception_return
+endfunc reflect_pending_async_ea_to_lower_el
 
 	/* ---------------------------------------------------------------------
 	 * The following code handles exceptions caused by BRK instructions.

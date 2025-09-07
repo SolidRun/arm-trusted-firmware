@@ -49,8 +49,11 @@ legacy 32-bit software that predates the `SMCCC`_.
     Fast        1      CPU Service calls
     Fast        2      SiP Service calls
     Fast        3      OEM Service calls
-    Fast        4      Standard Service calls
-    Fast       5-47    Reserved for future use
+    Fast        4      Standard Secure Service calls
+    Fast        5      Standard Hypervisor Service Calls
+    Fast        6      Vendor Specific Hypervisor Service Calls
+    Fast        7      Vendor Specific EL3 Monitor Calls
+    Fast       8-47    Reserved for future use
     Fast      48-49    Trusted Application calls
     Fast      50-63    Trusted OS calls
 
@@ -200,13 +203,13 @@ The handler is responsible for:
        SMC_RET1(handle, SMC_UNK);
 
 #. Determining if the requested function is valid for the calling security
-   state. SMC Calls can be made from both the normal and trusted worlds and
+   state. SMC Calls can be made from Non-secure, Secure or Realm worlds and
    the framework will forward all calls to the service handler.
 
    The ``flags`` parameter to this function indicates the caller security state
-   in bit[0], where a value of ``1`` indicates a non-secure caller. The
-   ``is_caller_secure(flags)`` and ``is_caller_non_secure(flags)`` can be used to
-   test this condition.
+   in bits 0 and 5. The ``is_caller_secure(flags)``, ``is_caller_non_secure(flags)``
+   and ``is_caller_realm(flags)`` helper functions can be used to determine whether
+   the caller's security state is Secure, Non-secure or Realm respectively.
 
    If invalid, the request should be completed with:
 
@@ -312,9 +315,17 @@ TODO: Provide details of the additional work required to implement a SPD and
 the BL31 support for these services. Or a reference to the document that will
 provide this information....
 
+Additional References:
+----------------------
+
+#. :ref:`ARM SiP Services <arm sip services>`
+#. :ref:`Vendor Specific EL3 Monitor Service Calls`
+
 --------------
 
-*Copyright (c) 2014-2020, Arm Limited and Contributors. All rights reserved.*
+*Copyright (c) 2014-2024, Arm Limited and Contributors. All rights reserved.*
 
 .. _SMCCC: https://developer.arm.com/docs/den0028/latest
-.. _PSCI: http://infocenter.arm.com/help/topic/com.arm.doc.den0022c/DEN0022C_Power_State_Coordination_Interface.pdf
+.. _PSCI: https://developer.arm.com/documentation/den0022/latest/
+.. _ARM SiP Services: arm-sip-service.rst
+.. _Vendor Specific EL3 Monitor Service Calls: ven-el3-service.rst

@@ -1,13 +1,15 @@
 /*
- * Copyright (c) 2020, Arm Limited. All rights reserved.
+ * Copyright (c) 2020-2023, Arm Limited. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
 #include <assert.h>
 #include <errno.h>
-#include <string.h>
+#include <inttypes.h>
 #include <libfdt.h>
+#include <stdint.h>
+#include <string.h>
 
 #include <common/bl_common.h>
 #include <common/debug.h>
@@ -80,8 +82,8 @@ static int manifest_parse_attribute(spmc_manifest_attribute_t *attr,
 	VERBOSE("  version: %u.%u\n", attr->major_version, attr->minor_version);
 	VERBOSE("  spmc_id: 0x%x\n", attr->spmc_id);
 	VERBOSE("  binary_size: 0x%x\n", attr->binary_size);
-	VERBOSE("  load_address: 0x%llx\n", attr->load_address);
-	VERBOSE("  entrypoint: 0x%llx\n", attr->entrypoint);
+	VERBOSE("  load_address: 0x%" PRIx64 "\n", attr->load_address);
+	VERBOSE("  entrypoint: 0x%" PRIx64 "\n", attr->entrypoint);
 
 	return 0;
 }
@@ -148,7 +150,7 @@ int plat_spm_core_manifest_load(spmc_manifest_attribute_t *manifest,
 	rc = mmap_add_dynamic_region((unsigned long long)pm_base_align,
 				     pm_base_align,
 				     PAGE_SIZE,
-				     MT_RO_DATA);
+				     MT_RO_DATA | EL3_PAS);
 	if (rc != 0) {
 		ERROR("Error while mapping SPM Core manifest (%d).\n", rc);
 		return rc;

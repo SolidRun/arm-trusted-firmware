@@ -1,5 +1,5 @@
 /*
- * Copyright 2017-2020 NXP
+ * Copyright 2017-2022 NXP
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
@@ -11,12 +11,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include <assert.h>
 #include "caam.h"
 #include <common/debug.h>
 #include "jobdesc.h"
 #include "rsa.h"
 #include "sec_hw_specific.h"
-
 
 /* Return Length of desctiptr from first word */
 uint32_t desc_length(uint32_t *desc)
@@ -41,6 +41,8 @@ void desc_add_word(uint32_t *desc, uint32_t word)
 {
 	uint32_t len = desc_length(desc);
 
+	assert((len + 1) < MAX_DESC_SIZE_WORDS);
+
 	/* Add Word at Last */
 	uint32_t *last = desc + len;
 	*last = word;
@@ -54,14 +56,17 @@ void desc_add_ptr(uint32_t *desc, phys_addr_t *ptr)
 {
 	uint32_t len = desc_length(desc);
 
+	assert((len + (uint32_t) (sizeof(phys_addr_t) / sizeof(uint32_t)))
+		< MAX_DESC_SIZE_WORDS);
+
 	/* Add Word at Last */
 	phys_addr_t *last = (phys_addr_t *) (desc + len);
 
 #ifdef CONFIG_PHYS_64BIT
 	ptr_addr_t *ptr_addr = (ptr_addr_t *) last;
 
-	ptr_addr->m_halves.high = PHYS_ADDR_HI(ptr);
-	ptr_addr->m_halves.low = PHYS_ADDR_LO(ptr);
+	ptr_addr->high = PHYS_ADDR_HI(ptr);
+	ptr_addr->low = PHYS_ADDR_LO(ptr);
 #else
 	*last = ptr;
 #endif

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2020, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2016-2025, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -11,11 +11,15 @@
 #include <platform_def.h>
 
 #include <arch.h>
+#include <arch_features.h>
 #include <arch_helpers.h>
 #include <common/bl_common.h>
 #include <context.h>
 #include <lib/el3_runtime/context_mgmt.h>
 #include <lib/extensions/amu.h>
+#include <lib/extensions/pmuv3.h>
+#include <lib/extensions/sys_reg_trace.h>
+#include <lib/extensions/trf.h>
 #include <lib/utils.h>
 
 /*******************************************************************************
@@ -49,7 +53,7 @@ void cm_init(void)
  *
  * To prepare the register state for entry call cm_prepare_el3_exit() and
  * el3_exit(). For Secure-EL1 cm_prepare_el3_exit() is equivalent to
- * cm_e1_sysreg_context_restore().
+ * cm_el1_sysregs_context_restore().
  ******************************************************************************/
 void cm_setup_context(cpu_context_t *ctx, const entry_point_info_t *ep)
 {
@@ -133,23 +137,22 @@ void cm_setup_context(cpu_context_t *ctx, const entry_point_info_t *ep)
 static void enable_extensions_nonsecure(bool el2_unused)
 {
 #if IMAGE_BL32
-#if ENABLE_AMU
-	amu_enable(el2_unused);
-#endif
-#endif
-}
+	if (is_feat_amu_supported()) {
+		amu_enable(el2_unused);
+	}
 
-/*******************************************************************************
- * The following function initializes the cpu_context for a CPU specified by
- * its `cpu_idx` for first use, and sets the initial entrypoint state as
- * specified by the entry_point_info structure.
- ******************************************************************************/
-void cm_init_context_by_index(unsigned int cpu_idx,
-			      const entry_point_info_t *ep)
-{
-	cpu_context_t *ctx;
-	ctx = cm_get_context_by_index(cpu_idx, GET_SECURITY_STATE(ep->h.attr));
-	cm_setup_context(ctx, ep);
+	if (is_feat_sys_reg_trace_supported()) {
+		sys_reg_trace_init_el3();
+	}
+
+	if (is_feat_trf_supported()) {
+		trf_init_el3();
+	}
+
+	if (is_feat_pmuv3_present()) {
+		pmuv3_init_el3();
+	}
+#endif /*  IMAGE_BL32 */
 }
 
 /*******************************************************************************
@@ -321,4 +324,13 @@ void cm_prepare_el3_exit(uint32_t security_state)
 		}
 		enable_extensions_nonsecure(el2_unused);
 	}
+}
+
+/*******************************************************************************
+ * This function is used to exit to Non-secure world. It simply calls the
+ * cm_prepare_el3_exit function for AArch32.
+ ******************************************************************************/
+void cm_prepare_el3_exit_ns(void)
+{
+	cm_prepare_el3_exit(NON_SECURE);
 }

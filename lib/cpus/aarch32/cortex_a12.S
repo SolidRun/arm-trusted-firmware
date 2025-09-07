@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2017-2024, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -64,19 +64,14 @@ func cortex_a12_cluster_pwr_dwn
 
 	bl	plat_disable_acp
 
+	/* Flush L2 caches */
+	mov	r0, #DC_OP_CISW
+	bl	dcsw_op_level2
+
 	/* Exit cluster coherency */
 	pop	{r12, lr}
 	b	cortex_a12_disable_smp
 endfunc cortex_a12_cluster_pwr_dwn
-
-#if REPORT_ERRATA
-/*
- * Errata printing function for Cortex-A12. Must follow AAPCS.
- */
-func cortex_a12_errata_report
-	bx	lr
-endfunc cortex_a12_errata_report
-#endif
 
 declare_cpu_ops cortex_a12, CORTEX_A12_MIDR, \
 	cortex_a12_reset_func, \

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2020, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2016-2025, Arm Limited and Contributors. All rights reserved.
  * Copyright (c) 2020, NVIDIA Corporation. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
@@ -19,8 +19,13 @@
 
 #define SIZE_FROM_LOG2_WORDS(n)		(U(4) << (n))
 
+#if defined(__LINKER__) || defined(__ASSEMBLER__)
 #define BIT_32(nr)			(U(1) << (nr))
 #define BIT_64(nr)			(ULL(1) << (nr))
+#else
+#define BIT_32(nr)			(((uint32_t)(1U)) << (nr))
+#define BIT_64(nr)			(((uint64_t)(1ULL)) << (nr))
+#endif
 
 #ifdef __aarch64__
 #define BIT				BIT_64
@@ -29,22 +34,22 @@
 #endif
 
 /*
- * Create a contiguous bitmask starting at bit position @l and ending at
- * position @h. For example
+ * Create a contiguous bitmask starting at bit position @low and ending at
+ * position @high. For example
  * GENMASK_64(39, 21) gives us the 64bit vector 0x000000ffffe00000.
  */
 #if defined(__LINKER__) || defined(__ASSEMBLER__)
-#define GENMASK_32(h, l) \
-	(((0xFFFFFFFF) << (l)) & (0xFFFFFFFF >> (32 - 1 - (h))))
+#define GENMASK_32(high, low) \
+	(((0xFFFFFFFF) << (low)) & (0xFFFFFFFF >> (32 - 1 - (high))))
 
-#define GENMASK_64(h, l) \
-	((~0 << (l)) & (~0 >> (64 - 1 - (h))))
+#define GENMASK_64(high, low) \
+	((~0 << (low)) & (~0 >> (64 - 1 - (high))))
 #else
-#define GENMASK_32(h, l) \
-	(((~UINT32_C(0)) << (l)) & (~UINT32_C(0) >> (32 - 1 - (h))))
+#define GENMASK_32(high, low) \
+	((~UINT32_C(0) >> (32U - 1U - (high))) ^ ((BIT_32(low) - 1U)))
 
-#define GENMASK_64(h, l) \
-	(((~UINT64_C(0)) << (l)) & (~UINT64_C(0) >> (64 - 1 - (h))))
+#define GENMASK_64(high, low) \
+	((~UINT64_C(0) >> (64U - 1U - (high))) ^ ((BIT_64(low) - 1U)))
 #endif
 
 #ifdef __aarch64__
@@ -52,6 +57,34 @@
 #else
 #define GENMASK				GENMASK_32
 #endif
+
+/*
+ * Similar to GENMASK_64 but uses a named register field to compute the mask.
+ * For a register field REG_FIELD, the macros REG_FIELD_WIDTH and
+ * REG_FIELD_SHIFT must be defined.
+ */
+#define MASK(regfield)							\
+	((~0ULL >> (64ULL - (regfield##_WIDTH))) << (regfield##_SHIFT))
+
+#define HI(addr)			(addr >> 32)
+#define LO(addr)			(addr & 0xffffffff)
+
+#define HI_64(addr)			(addr >> 64)
+#define LO_64(addr)			(addr & 0xffffffffffffffff)
+
+/**
+ * EXTRACT_FIELD - Extracts a specific bit field from a value.
+ *
+ * @reg:      The input value containing the field.
+
+ * @regfield: A bitmask representing the field. For a register field REG_FIELD,
+ *            the macros REG_FIELD_WIDTH and REG_FIELD_SHIFT must be defined.
+
+ * The result of this macro is the contents of the field right shifted to the
+ * least significant bit positions, with the rest being zero.
+ */
+#define EXTRACT(regfield, reg) \
+	(((reg) & MASK(regfield)) >> (regfield##_SHIFT))
 
 /*
  * This variant of div_round_up can be used in macro definition but should not
@@ -68,14 +101,14 @@
 	__typeof__(x) _x = (x);		\
 	__typeof__(y) _y = (y);		\
 	(void)(&_x == &_y);		\
-	_x < _y ? _x : _y;		\
+	(_x < _y) ? _x : _y;		\
 })
 
 #define MAX(x, y) __extension__ ({	\
 	__typeof__(x) _x = (x);		\
 	__typeof__(y) _y = (y);		\
 	(void)(&_x == &_y);		\
-	_x > _y ? _x : _y;		\
+	(_x > _y) ? _x : _y;		\
 })
 
 #define CLAMP(x, min, max) __extension__ ({ \
@@ -84,7 +117,7 @@
 	__typeof__(max) _max = (max); \
 	(void)(&_x == &_min); \
 	(void)(&_x == &_max); \
-	(_x > _max ? _max : (_x < _min ? _min : _x)); \
+	((_x > _max) ? _max : ((_x < _min) ? _min : _x)); \
 })
 
 /*
@@ -103,6 +136,48 @@
 
 #define round_down(value, boundary)		\
 	((value) & ~round_boundary(value, boundary))
+
+/* add operation together with checking whether the operation overflowed
+ * The result is '*res',
+ * return 0 on success and 1 on overflow
+ */
+#define add_overflow(a, b, res) __builtin_add_overflow((a), (b), (res))
+
+/*
+ * Round up a value to align with a given size and
+ * check whether overflow happens.
+ * The rounduped value is '*res',
+ * return 0 on success and 1 on overflow
+ */
+#define round_up_overflow(v, size, res) (__extension__({ \
+	typeof(res) __res = res; \
+	typeof(*(__res)) __roundup_tmp = 0; \
+	typeof(v) __roundup_mask = (typeof(v))(size) - 1; \
+	\
+	add_overflow((v), __roundup_mask, &__roundup_tmp) ? 1 : \
+		(void)(*(__res) = __roundup_tmp & ~__roundup_mask), 0; \
+}))
+
+/*
+ * Add a with b, then round up the result to align with a given size and
+ * check whether overflow happens.
+ * The rounduped value is '*res',
+ * return 0 on success and 1 on overflow
+ */
+#define add_with_round_up_overflow(a, b, size, res) (__extension__({ \
+	typeof(a) __a = (a); \
+	typeof(__a) __add_res = 0; \
+	\
+	add_overflow((__a), (b), &__add_res) ? 1 : \
+		round_up_overflow(__add_res, (size), (res)) ? 1 : 0; \
+}))
+
+/**
+ * Helper macro to ensure a value lies on a given boundary.
+ */
+#define is_aligned(value, boundary)			\
+	(round_up((uintptr_t) value, boundary) ==	\
+	 round_down((uintptr_t) value, boundary))
 
 /*
  * Evaluates to 1 if (ptr + inc) overflows, 0 otherwise.

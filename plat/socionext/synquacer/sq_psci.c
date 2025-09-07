@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2018-2022, ARM Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -97,6 +97,14 @@ static void sq_power_down_common(const psci_power_state_t *target_state)
 void sq_pwr_domain_off(const psci_power_state_t *target_state)
 {
 #if SQ_USE_SCMI_DRIVER
+	/* Prevent interrupts from spuriously waking up this cpu */
+	sq_gic_cpuif_disable();
+
+	/* Cluster is to be turned off, so disable coherency */
+	if (SQ_CLUSTER_PWR_STATE(target_state) == SQ_LOCAL_STATE_OFF) {
+		plat_sq_interconnect_exit_coherency();
+	}
+
 	sq_scmi_off(target_state);
 #else
 	sq_power_down_common(target_state);
@@ -105,6 +113,9 @@ void sq_pwr_domain_off(const psci_power_state_t *target_state)
 
 void __dead2 sq_system_off(void)
 {
+#if SQ_USE_SCMI_DRIVER
+	sq_scmi_sys_shutdown();
+#else
 	volatile uint32_t *gpio = (uint32_t *)PLAT_SQ_GPIO_BASE;
 
 	/* set PD[9] high to power off the system */
@@ -131,6 +142,7 @@ void __dead2 sq_system_off(void)
 	wfi();
 	ERROR("SQ System Off: operation not handled.\n");
 	panic();
+#endif
 }
 
 void __dead2 sq_system_reset(void)
@@ -185,9 +197,17 @@ const plat_psci_ops_t sq_psci_ops = {
 int plat_setup_psci_ops(uintptr_t sec_entrypoint,
 			const struct plat_psci_ops **psci_ops)
 {
+#if !RESET_TO_BL31
+	uintptr_t *sq_sec_ep = (uintptr_t *)BL2_MAILBOX_BASE;
+
+	*sq_sec_ep = sec_entrypoint;
+	flush_dcache_range((uint64_t)sq_sec_ep,
+			   sizeof(*sq_sec_ep));
+#else
 	sq_sec_entrypoint = sec_entrypoint;
 	flush_dcache_range((uint64_t)&sq_sec_entrypoint,
 			   sizeof(sq_sec_entrypoint));
+#endif
 
 	*psci_ops = &sq_psci_ops;
 

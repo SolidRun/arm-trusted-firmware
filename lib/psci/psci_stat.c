@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2019, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2016-2019, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -73,11 +73,10 @@ static int get_stat_idx(plat_local_state_t local_state, unsigned int pwr_lvl)
  * This function will only be invoked with data cache enabled and while
  * powering down a core.
  ******************************************************************************/
-void psci_stats_update_pwr_down(unsigned int end_pwrlvl,
+void psci_stats_update_pwr_down(unsigned int cpu_idx, unsigned int end_pwrlvl,
 			const psci_power_state_t *state_info)
 {
 	unsigned int lvl, parent_idx;
-	unsigned int cpu_idx = plat_my_core_pos();
 
 	assert(end_pwrlvl <= PLAT_MAX_PWR_LVL);
 	assert(state_info != NULL);
@@ -106,11 +105,10 @@ void psci_stats_update_pwr_down(unsigned int end_pwrlvl,
  * and NON-CPU power domains.
  * It is called with caches enabled and locks acquired(for NON-CPU domain)
  ******************************************************************************/
-void psci_stats_update_pwr_up(unsigned int end_pwrlvl,
+void psci_stats_update_pwr_up(unsigned int cpu_idx, unsigned int end_pwrlvl,
 			const psci_power_state_t *state_info)
 {
 	unsigned int lvl, parent_idx;
-	unsigned int cpu_idx = plat_my_core_pos();
 	int stat_idx;
 	plat_local_state_t local_state;
 	u_register_t residency;
@@ -181,10 +179,8 @@ static int psci_get_stat(u_register_t target_cpu, unsigned int power_state,
 	psci_power_state_t state_info = { {PSCI_LOCAL_STATE_RUN} };
 	plat_local_state_t local_state;
 
-	/* Validate the target_cpu parameter and determine the cpu index */
+	/* Determine the cpu index */
 	target_idx = (unsigned int) plat_core_pos_by_mpidr(target_cpu);
-	if (target_idx == (unsigned int) -1)
-		return PSCI_E_INVALID_PARAMS;
 
 	/* Validate the power_state parameter */
 	if (psci_plat_pm_ops->translate_power_state_by_mpidr == NULL)
@@ -228,6 +224,11 @@ u_register_t psci_stat_residency(u_register_t target_cpu,
 		unsigned int power_state)
 {
 	psci_stat_t psci_stat;
+
+	/* Validate the target cpu */
+	if (!is_valid_mpidr(target_cpu))
+		return 0;
+
 	int rc = psci_get_stat(target_cpu, power_state, &psci_stat);
 
 	if (rc == PSCI_E_SUCCESS)
@@ -241,6 +242,11 @@ u_register_t psci_stat_count(u_register_t target_cpu,
 	unsigned int power_state)
 {
 	psci_stat_t psci_stat;
+
+	/* Validate the target cpu */
+	if (!is_valid_mpidr(target_cpu))
+		return 0;
+
 	int rc = psci_get_stat(target_cpu, power_state, &psci_stat);
 
 	if (rc == PSCI_E_SUCCESS)

@@ -13,7 +13,7 @@ struct phy_msg {
 	const char *msg;
 };
 
-const static struct phy_msg messages_1d[] = {
+static const struct phy_msg messages_1d[] = {
 	{0x00000001,
 	 "PMU1:prbsGenCtl:%04x\n"
 	},
@@ -546,7 +546,7 @@ const static struct phy_msg messages_1d[] = {
 	 "PMU3: Resetting DRAM\n"
 	},
 	{0x00b10000,
-	 "PMU3: setup for RCD initalization\n"
+	 "PMU3: setup for RCD initialization\n"
 	},
 	{0x00b20000,
 	 "PMU3: pmu_exit_SR from dev_init()\n"
@@ -986,8 +986,11 @@ const static struct phy_msg messages_1d[] = {
 	{0x01430001,
 	 "PMU0: PHY VREF @ (%d/1000) VDDQ\n"
 	},
+	{0x01430002,
+	 "PMU0: initializing phy vrefDacs to %d ExtVrefRange %x\n"
+	},
 	{0x01440002,
-	 "PMU0: initalizing phy vrefDacs to %d ExtVrefRange %04x\n"
+	 "PMU0: initializing global vref to %d range %d\n"
 	},
 	{0x01450002,
 	 "PMU0: initalizing global vref to %d range %d\n"
@@ -1252,7 +1255,7 @@ const static struct phy_msg messages_1d[] = {
 	},
 };
 
-const static struct phy_msg messages_2d[] = {
+static const struct phy_msg messages_2d[] = {
 	{0x00000001,
 	 "PMU0: Converting %d into an MR\n"
 	},
@@ -1838,7 +1841,7 @@ const static struct phy_msg messages_2d[] = {
 	{0x00c20000,
 	 "PMU3: Precharge all open banks\n"
 	},
-	{0x00c30002,
+	{0x00be0002,
 	 "PMU: Error: Dbyte %d nibble %d found multiple working coarse delay setting for MRD/MWD\n"
 	},
 	{0x00c40000,
@@ -2240,8 +2243,8 @@ const static struct phy_msg messages_2d[] = {
 	{0x01480000,
 	 "PMU3: Resetting DRAM\n"
 	},
-	{0x01490000,
-	 "PMU3: setup for RCD initalization\n"
+	{0x01440000,
+	 "PMU3: setup for RCD initialization\n"
 	},
 	{0x014a0000,
 	 "PMU3: pmu_exit_SR from dev_init()\n"
@@ -2681,11 +2684,11 @@ const static struct phy_msg messages_2d[] = {
 	{0x01db0001,
 	 "PMU0: PHY VREF @ (%d/1000) VDDQ\n"
 	},
-	{0x01dc0002,
-	 "PMU0: initalizing phy vrefDacs to %d ExtVrefRange %04x\n"
+	{0x01d60002,
+	 "PMU0: initializing phy vrefDacs to %d ExtVrefRange %x\n"
 	},
-	{0x01dd0002,
-	 "PMU0: initalizing global vref to %d range %d\n"
+	{0x01d70002,
+	 "PMU0: initializing global vref to %d range %d\n"
 	},
 	{0x01de0002,
 	 "PMU4: Setting initial device vrefDQ for CS%d to MR6 = 0x%04x\n"

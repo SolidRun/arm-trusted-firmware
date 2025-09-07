@@ -1,11 +1,13 @@
 /*
- * Copyright (c) 2015-2020, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2015-2024, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
 #ifndef TBBR_OID_H
 #define TBBR_OID_H
+
+#include "zero_oid.h"
 
 #define	MAX_OID_NAME_LEN	30
 
@@ -159,6 +161,20 @@
 #define SP_PKG6_HASH_OID			"1.3.6.1.4.1.4128.2100.1306"
 #define SP_PKG7_HASH_OID			"1.3.6.1.4.1.4128.2100.1307"
 #define SP_PKG8_HASH_OID			"1.3.6.1.4.1.4128.2100.1308"
+
+/*
+ * Public Keys present in SOC FW content certificates authenticate BL31 and
+ * its configuration.
+ */
+#define BL31_IMAGE_KEY_OID			SOC_FW_CONTENT_CERT_PK_OID
+#define SOC_FW_CONFIG_KEY_OID			SOC_FW_CONTENT_CERT_PK_OID
+#define HW_CONFIG_KEY_OID			ZERO_OID
+
+#define SCP_BL2_IMAGE_KEY_OID			SCP_FW_CONTENT_CERT_PK_OID
+#define BL32_IMAGE_KEY_OID			TRUSTED_OS_FW_CONTENT_CERT_PK_OID
+#define TOS_FW_CONFIG_KEY_OID			TRUSTED_OS_FW_CONTENT_CERT_PK_OID
+#define BL33_IMAGE_KEY_OID			NON_TRUSTED_FW_CONTENT_CERT_PK_OID
+#define NT_FW_CONFIG_KEY_OID			NON_TRUSTED_FW_CONTENT_CERT_PK_OID
 
 #ifdef PLAT_DEF_OID
 #include <platform_oid.h>

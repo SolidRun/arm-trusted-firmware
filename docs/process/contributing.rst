@@ -1,14 +1,18 @@
 Contributor's Guide
-===================
+*******************
 
 Getting Started
----------------
+===============
 
--  Make sure you have a Github account and you are logged on both
-   `developer.trustedfirmware.org`_ and `review.trustedfirmware.org`_.
+-  Make sure you have a Github account and you are logged on to
+   `review.trustedfirmware.org`_.
+
+   Also make sure that you have registered your full name and email address in
+   your `review.trustedfirmware.org`_ profile. Otherwise, the Gerrit server
+   might reject patches you attempt to post for review.
 
 -  If you plan to contribute a major piece of work, it is usually a good idea to
-   start a discussion around it on the mailing list. This gives everyone
+   start a discussion around it on the `TF-A mailing list`_. This gives everyone
    visibility of what is coming up, you might learn that somebody else is
    already working on something similar or the community might be able to
    provide some early input to help shaping the design of the feature.
@@ -17,31 +21,19 @@ Getting Started
    it explicitly in the email thread and ensure that the changes that include
    Third Party IP are made in a separate patch (or patch series).
 
--  Clone `Trusted Firmware-A`_ on your own machine as described in
+-  Clone the Trusted Firmware-A source code on your own machine as described in
    :ref:`prerequisites_get_source`.
 
--  Create a local topic branch based on the `Trusted Firmware-A`_ ``master``
+-  Create a local topic branch based on the Trusted Firmware-A ``master``
    branch.
 
 Making Changes
---------------
+==============
+
+-  Ensure commits adhere to the project's :ref:`Commit Style`.
 
 -  Make commits of logical units. See these general `Git guidelines`_ for
    contributing to a project.
-
--  Ensure your commit messages comply with the `Conventional Commits`_
-   specification:
-
-   .. code::
-
-       <type>[optional scope]: <description>
-
-       [optional body]
-
-       [optional footer(s)]
-
-   You can use the tooling installed by the optional steps in the
-   :ref:`prerequisites <Prerequisites>` guide to validate this locally.
 
 -  Keep the commits on topic. If you need to fix another bug or make another
    enhancement, please address it on a separate topic branch.
@@ -51,39 +43,6 @@ Making Changes
 
 -  Avoid long commit series. If you do have a long series, consider whether
    some commits should be squashed together or addressed in a separate topic.
-
--  Ensure that each commit in the series has at least one ``Signed-off-by:``
-   line, using your real name and email address. The names in the
-   ``Signed-off-by:`` and ``Commit:`` lines must match. By adding this line the
-   contributor certifies the contribution is made under the terms of the
-   :download:`Developer Certificate of Origin <../../dco.txt>`.
-
-   There might be multiple ``Signed-off-by:`` lines, depending on the history
-   of the patch.
-
-   More details may be found in the `Gerrit Signed-off-by Lines guidelines`_.
-
--  Ensure that each commit also has a unique ``Change-Id:`` line. If you have
-   cloned the repository with the "`Clone with commit-msg hook`" clone method
-   (following the :ref:`Prerequisites` document), this should already be the
-   case.
-
-   More details may be found in the `Gerrit Change-Ids documentation`_.
-
--  Write informative and comprehensive commit messages. A good commit message
-   provides all the background information needed for reviewers to understand
-   the intent and rationale of the patch. This information is also useful for
-   future reference.
-
-   For example:
-
-   -  What does the patch do?
-   -  What motivated it?
-   -  What impact does it have?
-   -  How was it tested?
-   -  Have alternatives been considered? Why did you choose this approach over
-      another one?
-   -  If it fixes an `issue`_, include a reference.
 
 -  Follow the :ref:`Coding Style` and :ref:`Coding Guidelines`.
 
@@ -136,15 +95,23 @@ Making Changes
    block a patch, depending on how critical they are.
 
 Submitting Changes
-------------------
+==================
 
--  Submit your changes for review at https://review.trustedfirmware.org
-   targeting the ``integration`` branch.
+.. note::
+   Please follow the `How to Contribute Code`_ section of the OpenCI
+   documentation for general instructions on setting up Gerrit and posting
+   patches there. The rest of this section provides details about patch
+   submission rules specifically for the TF-A project.
 
--  Add reviewers for your patch:
+-  Submit your changes for review using the ``git review`` command.
 
-   -  At least one code owner for each module modified by the patch. See the list
-      of modules and their :ref:`code owners`.
+   This will automatically rebase them onto the upstream ``integration`` branch,
+   as required by TF-A's patch submission process.
+
+-  From the Gerrit web UI, add reviewers for your patch:
+
+   -  At least one code owner for each module modified by the patch. See the
+      list of modules and their :ref:`code owners`.
 
    -  At least one maintainer. See the list of :ref:`maintainers`.
 
@@ -209,8 +176,145 @@ Submitting Changes
       revert your patches and ask you to resubmit a reworked version of them or
       they may ask you to provide a fix-up patch.
 
+Add CI Configurations
+=====================
+
+TF-A uses Jenkins for Continuous Integration and testing activities. Various CI
+jobs are deployed to run tests on every patch before being merged. Each of your
+patches go through a series of checks before they get merged on to the master
+branch. Kindly ensure that every time you add new files under your platform,
+they are covered by the following two sections.
+
+Coverity Scan
+-------------
+
+The TF-A project makes use of `Coverity Scan` for static analysis, a service
+offered by Synopsys for open-source projects. This tool is able to find defects
+and vulnerabilities in a code base, such as dereferences of NULL pointers, use
+of uninitialized data, control flow issues and many other things.
+
+The TF-A source code is submitted daily to this service for analysis. Results of
+the latest and previous scans, as well as the complete list of defects it
+detected, are accessible online from
+https://scan.coverity.com/projects/arm-software-arm-trusted-firmware.
+
+The `tf-a-ci-scripts repository`_ contains scripts to run the Coverity Scan
+tools on the integration branch of the TF-A code base and make them available on
+https://scan.coverity.com. These scripts get executed daily by the
+`tf-a-coverity Jenkins job`_.
+
+In order to maintain a high level of coverage, including on newly introduced
+code, it is important to maintain the appropriate TF-A CI scripts. Details of
+when to update these scripts and how to do so follow.
+
+We maintain a build script - ``tf-cov-make`` - which contains the build
+configurations of various platforms in order to cover the entire source code
+being analysed by Coverity.
+
+When you submit your patches for review, and if they contain new source files,
+`TF-A CI static checks job`_ might report that these files are not covered. In
+this case, the job's console output will show the following error message::
+
+   ****** Newly added files detection check for Coverity Scan analysis on patch(es) ******
+
+   Result : FAILURE
+
+   New source files have been identified in your patch..
+   some/dir/file.c
+
+   please ensure to include them for the ``Coverity Scan analysis`` by adding
+   the respective build configurations in the ``tf-cov-make`` build script.
+
+In this section you find the details on how to append your new build
+configurations for Coverity scan analysis illustrated with examples:
+
+#. We maintain a separate repository named `tf-a-ci-scripts repository`_
+   for placing all the test scripts which will be executed by the CI Jobs.
+
+#. In this repository, ``tf-cov-make`` script is located at
+   ``tf-a-ci-scripts/script/tf-coverity/tf-cov-make``
+
+#. Edit the `tf-cov-make`_ script by appending all the possible build
+   configurations with the specific build flags relevant to your platform, so
+   that newly added source files get built and analysed by Coverity.
+
+#. For better understanding follow the below specified examples listed in the
+   ``tf-cov-make`` script.
+
+.. code:: shell
+
+    Example 1:
+    #Intel
+    make PLAT=stratix10 $(common_flags) all
+    make PLAT=agilex $(common_flags) all
+
+-  In the above example there are two different SoCs ``stratix`` and ``agilex``
+   under the Intel platform and the build configurations has been added suitably
+   to include most of their source files.
+
+.. code:: shell
+
+    Example 2:
+    #Hikey
+    make PLAT=hikey $(common_flags) ${TBB_OPTIONS} ENABLE_PMF=1 all
+    make PLAT=hikey960 $(common_flags) ${TBB_OPTIONS} all
+    make PLAT=poplar $(common_flags) all
+
+-  In this case for ``Hikey`` boards additional build flags have been included
+   along with the ``common_flags`` to cover most of the files relevant to it.
+
+-  Similar to this you can still find many other different build configurations
+   of various other platforms listed in the ``tf-cov-make`` script. Kindly refer
+   them and append your build configurations respectively.
+
+Test Build Configurations
+-------------------------
+
+We have CI jobs which run a set of test configurations on every TF-A patch
+before they get merged upstream.
+
+At the bare minimum, TF-A code should build without any errors for every
+supported platform - and every feature of this platform. To make sure this is
+the case, we maintain a set of build tests. ``tf-l1-build-plat`` is the test
+group which holds all build tests for all platforms. So be kind enough to
+verify that your newly added files are covered by such a build test.
+
+If this is not the case, please follow the instructions below to add the
+appropriate files. We will illustrate this with an example for the ``Hikey``
+platform.
+
+-  In the `tf-a-ci-scripts repository`_ we need to add a build configuration file
+   ``hikey-default`` under ``tf_config/`` folder. ``tf_config/hikey-default``
+   must list all the build parameters relevant to it.
+
+.. code:: shell
+
+   # Hikey Build Parameters
+   CROSS_COMPILE=aarch64-none-elf-
+   PLAT=hikey
+
+-  Further another file, ``hikey-default:nil``, needs to be added under
+   ``group/tf-l1-build-plat/`` folder to allow the platform to be built as part
+   of this test group. ``group/tf-l1-build-plat/hikey-default:nil`` file just
+   needs to exist but does not contain anything meaningful, apart from a
+   mandatory copyright notice:
+
+.. code:: shell
+
+   #
+   # Copyright (c) 2019-2022 Arm Limited. All rights reserved.
+   #
+   # SPDX-License-Identifier: BSD-3-Clause
+   #
+
+-  As illustrated above, you need to add similar files supporting your platform.
+
+For a more elaborate explanation of the TF-A CI scripts internals, including how
+to add more complex tests beyond a simple build test, please refer to the `TF-A
+CI scripts overview`_ section of the OpenCI documentation.
+
 Binary Components
------------------
+=================
 
 -  Platforms may depend on binary components submitted to the `Trusted Firmware
    binary repository`_ if they require code that the contributor is unable or
@@ -228,18 +332,18 @@ Binary Components
 
 --------------
 
-*Copyright (c) 2013-2020, Arm Limited and Contributors. All rights reserved.*
+*Copyright (c) 2013-2024, Arm Limited and Contributors. All rights reserved.*
 
-.. _Conventional Commits: https://www.conventionalcommits.org/en/v1.0.0
-.. _developer.trustedfirmware.org: https://developer.trustedfirmware.org
 .. _review.trustedfirmware.org: https://review.trustedfirmware.org
-.. _issue: https://developer.trustedfirmware.org/project/board/1/
-.. _Trusted Firmware-A: https://git.trustedfirmware.org/TF-A/trusted-firmware-a.git
 .. _Git guidelines: http://git-scm.com/book/ch5-2.html
 .. _Gerrit Uploading Changes documentation: https://review.trustedfirmware.org/Documentation/user-upload.html
-.. _Gerrit Signed-off-by Lines guidelines: https://review.trustedfirmware.org/Documentation/user-signedoffby.html
-.. _Gerrit Change-Ids documentation: https://review.trustedfirmware.org/Documentation/user-changeid.html
 .. _TF-A Tests: https://trustedfirmware-a-tests.readthedocs.io
 .. _Trusted Firmware binary repository: https://review.trustedfirmware.org/admin/repos/tf-binaries
 .. _tf-binaries-readme: https://git.trustedfirmware.org/tf-binaries.git/tree/readme.rst
-.. _TF-A mailing list: https://lists.trustedfirmware.org/mailman/listinfo/tf-a
+.. _TF-A mailing list: https://lists.trustedfirmware.org/mailman3/lists/tf-a.lists.trustedfirmware.org/
+.. _tf-a-ci-scripts repository: https://git.trustedfirmware.org/ci/tf-a-ci-scripts.git/
+.. _tf-cov-make: https://git.trustedfirmware.org/ci/tf-a-ci-scripts.git/tree/script/tf-coverity/tf-cov-make
+.. _How to Contribute Code: https://tf-ci-users-guide.readthedocs.io/en/latest/#how-to-contribute-code
+.. _TF-A CI scripts overview: https://tf-ci-users-guide.readthedocs.io/en/latest/#tf-a-ci-scripts-overview
+.. _tf-a-coverity Jenkins job: https://ci.trustedfirmware.org/job/tf-a-coverity/
+.. _TF-A CI static checks job: https://ci.trustedfirmware.org/job/tf-a-static-checks/

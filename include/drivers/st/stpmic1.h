@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2019, STMicroelectronics - All Rights Reserved
+ * Copyright (c) 2016-2021, STMicroelectronics - All Rights Reserved
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -86,15 +86,15 @@
 #define ITSOURCE4_REG			0xB3U
 
 /* Registers masks */
-#define LDO_VOLTAGE_MASK		0x7CU
-#define BUCK_VOLTAGE_MASK		0xFCU
+#define LDO_VOLTAGE_MASK		GENMASK(6, 2)
+#define BUCK_VOLTAGE_MASK		GENMASK(7, 2)
 #define LDO_BUCK_VOLTAGE_SHIFT		2
-#define LDO_BUCK_ENABLE_MASK		0x01U
-#define LDO_BUCK_HPLP_ENABLE_MASK	0x02U
+#define LDO_BUCK_ENABLE_MASK		BIT(0)
+#define LDO_BUCK_HPLP_ENABLE_MASK	BIT(1)
 #define LDO_BUCK_HPLP_SHIFT		1
-#define LDO_BUCK_RANK_MASK		0x01U
-#define LDO_BUCK_RESET_MASK		0x01U
-#define LDO_BUCK_PULL_DOWN_MASK		0x03U
+#define LDO_BUCK_RANK_MASK		BIT(0)
+#define LDO_BUCK_RESET_MASK		BIT(0)
+#define LDO_BUCK_PULL_DOWN_MASK		GENMASK(1, 0)
 
 /* Pull down register */
 #define BUCK1_PULL_DOWN_SHIFT		0
@@ -102,6 +102,22 @@
 #define BUCK3_PULL_DOWN_SHIFT		4
 #define BUCK4_PULL_DOWN_SHIFT		6
 #define VREF_DDR_PULL_DOWN_SHIFT	4
+
+/* ICC register */
+#define BUCK1_ICC_SHIFT			0
+#define BUCK2_ICC_SHIFT			1
+#define BUCK3_ICC_SHIFT			2
+#define BUCK4_ICC_SHIFT			3
+#define PWR_SW1_ICC_SHIFT		4
+#define PWR_SW2_ICC_SHIFT		5
+#define BOOST_ICC_SHIFT			6
+
+#define LDO1_ICC_SHIFT			0
+#define LDO2_ICC_SHIFT			1
+#define LDO3_ICC_SHIFT			2
+#define LDO4_ICC_SHIFT			3
+#define LDO5_ICC_SHIFT			4
+#define LDO6_ICC_SHIFT			5
 
 /* Buck Mask reset register */
 #define BUCK1_MASK_RESET		0
@@ -117,6 +133,10 @@
 #define LDO5_MASK_RESET			4
 #define LDO6_MASK_RESET			5
 #define VREF_DDR_MASK_RESET		6
+
+/* LDO3 Special modes */
+#define LDO3_BYPASS                     BIT(7)
+#define LDO3_DDR_SEL                    31U
 
 /* Main PMIC Control Register (MAIN_CONTROL_REG) */
 #define ICC_EVENT_ENABLED		BIT(4)
@@ -135,19 +155,22 @@
 /* Main PMIC VINLOW Control Register (VIN_CONTROL_REGC DMSC) */
 #define SWIN_DETECTOR_ENABLED		BIT(7)
 #define SWOUT_DETECTOR_ENABLED          BIT(6)
-#define VINLOW_HYST_MASK		0x3
+#define VINLOW_HYST_MASK		GENMASK(1, 0)
 #define VINLOW_HYST_SHIFT		4
-#define VINLOW_THRESHOLD_MASK		0x7
+#define VINLOW_THRESHOLD_MASK		GENMASK(2, 0)
 #define VINLOW_THRESHOLD_SHIFT		1
-#define VINLOW_ENABLED			0x01
-#define VINLOW_CTRL_REG_MASK		0xFF
+#define VINLOW_ENABLED			BIT(0)
+#define VINLOW_CTRL_REG_MASK		GENMASK(7, 0)
 
 /* USB Control Register */
 #define BOOST_OVP_DISABLED		BIT(7)
 #define VBUS_OTG_DETECTION_DISABLED	BIT(6)
+#define SW_OUT_DISCHARGE		BIT(5)
+#define VBUS_OTG_DISCHARGE		BIT(4)
 #define OCP_LIMIT_HIGH			BIT(3)
 #define SWIN_SWOUT_ENABLED		BIT(2)
 #define USBSW_OTG_SWITCH_ENABLED	BIT(1)
+#define BOOST_ENABLED			BIT(0)
 
 int stpmic1_powerctrl_on(void);
 int stpmic1_switch_off(void);
@@ -156,11 +179,17 @@ int stpmic1_register_write(uint8_t register_id, uint8_t value);
 int stpmic1_register_update(uint8_t register_id, uint8_t value, uint8_t mask);
 int stpmic1_regulator_enable(const char *name);
 int stpmic1_regulator_disable(const char *name);
-uint8_t stpmic1_is_regulator_enabled(const char *name);
+bool stpmic1_is_regulator_enabled(const char *name);
 int stpmic1_regulator_voltage_set(const char *name, uint16_t millivolts);
+int stpmic1_regulator_levels_mv(const char *name, const uint16_t **levels,
+				size_t *levels_count);
 int stpmic1_regulator_voltage_get(const char *name);
 int stpmic1_regulator_pull_down_set(const char *name);
 int stpmic1_regulator_mask_reset_set(const char *name);
+int stpmic1_regulator_icc_set(const char *name);
+int stpmic1_regulator_sink_mode_set(const char *name);
+int stpmic1_regulator_bypass_mode_set(const char *name);
+int stpmic1_active_discharge_mode_set(const char *name);
 void stpmic1_bind_i2c(struct i2c_handle_s *i2c_handle, uint16_t i2c_addr);
 
 int stpmic1_get_version(unsigned long *version);

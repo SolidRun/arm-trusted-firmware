@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021 ARM Limited
+ * Copyright (c) 2021 Arm Limited
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
@@ -14,8 +14,10 @@
 #define ARM_ACLE_H
 
 #if !defined(__aarch64__) || defined(__clang__)
+#	define __crc32b __builtin_arm_crc32b
 #	define __crc32w __builtin_arm_crc32w
 #else
+#	define __crc32b __builtin_aarch64_crc32b
 #	define __crc32w __builtin_aarch64_crc32w
 #endif
 

@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2016-2019, ARM Limited and Contributors. All rights reserved.
+# Copyright (c) 2016-2023, Arm Limited and Contributors. All rights reserved.
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
@@ -56,8 +56,6 @@ BL32_SOURCES		+=	${RK_GIC_SOURCES}				\
 				${RK_PLAT_SOC}/drivers/secure/secure.c		\
 				${RK_PLAT_SOC}/drivers/soc/soc.c		\
 
-MULTI_CONSOLE_API	:=	1
-
 include lib/coreboot/coreboot.mk
 include lib/libfdt/libfdt.mk
 
@@ -67,3 +65,7 @@ $(eval $(call add_define,PLAT_SP_MIN_EXTRA_LD_SCRIPT))
 ENABLE_SVE_FOR_NS	:=	0
 
 WORKAROUND_CVE_2017_5715	:=	0
+
+ifeq (${AARCH32_SP}, none)
+    $(error Variable AARCH32_SP has to be set for AArch32)
+endif

@@ -1,10 +1,11 @@
 /*
- * Copyright (c) 2020-2021, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2020-2024, ARM Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
 #include <assert.h>
+#include <string.h>
 
 #include <common/debug.h>
 #include <common/desc_image_load.h>
@@ -27,16 +28,19 @@ struct arm_sp_t arm_sp;
 int fconf_populate_arm_sp(uintptr_t config)
 {
 	int sp_node, node, err;
-	union uuid_helper_t uuid_helper;
+	struct uuid uuid;
 	unsigned int index = 0;
 	uint32_t val32;
-	bool is_plat_owned = false;
 	const unsigned int sip_start = SP_PKG1_ID;
 	unsigned int sip_index = sip_start;
+#if defined(ARM_COT_dualroot)
 	const unsigned int sip_end = sip_start + MAX_SP_IDS / 2;
+	/* Allocating index range for platform SPs */
 	const unsigned int plat_start = SP_PKG5_ID;
 	unsigned int plat_index = plat_start;
 	const unsigned int plat_end = plat_start + MAX_SP_IDS / 2;
+	bool is_plat_owned = false;
+#endif /* ARM_COT_dualroot */
 
 	/* As libfdt use void *, we can't avoid this cast */
 	const void *dtb = (void *)config;
@@ -51,36 +55,28 @@ int fconf_populate_arm_sp(uintptr_t config)
 	}
 
 	fdt_for_each_subnode(sp_node, dtb, node) {
-		if ((index == MAX_SP_IDS) || (sip_index == sip_end)
-		    || (plat_index == plat_end)) {
+		if (index == MAX_SP_IDS) {
 			ERROR("FCONF: Reached max number of SPs\n");
 			return -1;
 		}
 
+#if defined(ARM_COT_dualroot)
+		if ((sip_index == sip_end) || (plat_index == plat_end)) {
+			ERROR("FCONF: Reached max number of plat/SiP SPs\n");
+			return -1;
+		}
+#endif /* ARM_COT_dualroot */
+
 		/* Read UUID */
 		err = fdtw_read_uuid(dtb, sp_node, "uuid", 16,
-				     (uint8_t *)&uuid_helper);
+				     (uint8_t *)&uuid);
 		if (err < 0) {
 			ERROR("FCONF: cannot read SP uuid\n");
 			return -1;
 		}
 
-		arm_sp.uuids[index] = uuid_helper;
-		VERBOSE("FCONF: %s UUID"
-			" %02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x"
-			" load_addr=%lx\n",
-			__func__,
-			uuid_helper.uuid_struct.time_low[0], uuid_helper.uuid_struct.time_low[1],
-			uuid_helper.uuid_struct.time_low[2], uuid_helper.uuid_struct.time_low[3],
-			uuid_helper.uuid_struct.time_mid[0], uuid_helper.uuid_struct.time_mid[1],
-			uuid_helper.uuid_struct.time_hi_and_version[0],
-			uuid_helper.uuid_struct.time_hi_and_version[1],
-			uuid_helper.uuid_struct.clock_seq_hi_and_reserved,
-			uuid_helper.uuid_struct.clock_seq_low,
-			uuid_helper.uuid_struct.node[0], uuid_helper.uuid_struct.node[1],
-			uuid_helper.uuid_struct.node[2], uuid_helper.uuid_struct.node[3],
-			uuid_helper.uuid_struct.node[4], uuid_helper.uuid_struct.node[5],
-			arm_sp.load_addr[index]);
+		memcpy_s(&arm_sp.uuids[index].uuid_struct, sizeof(struct uuid),
+			 &uuid, sizeof(struct uuid));
 
 		/* Read Load address */
 		err = fdt_read_uint32(dtb, sp_node, "load-address", &val32);
@@ -90,12 +86,28 @@ int fconf_populate_arm_sp(uintptr_t config)
 		}
 		arm_sp.load_addr[index] = val32;
 
+		VERBOSE("FCONF: %s UUID"
+			" %02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x"
+			" load_addr=%lx\n",
+			__func__,
+			uuid.time_low[0], uuid.time_low[1],
+			uuid.time_low[2], uuid.time_low[3],
+			uuid.time_mid[0], uuid.time_mid[1],
+			uuid.time_hi_and_version[0],
+			uuid.time_hi_and_version[1],
+			uuid.clock_seq_hi_and_reserved,
+			uuid.clock_seq_low,
+			uuid.node[0], uuid.node[1],
+			uuid.node[2], uuid.node[3],
+			uuid.node[4], uuid.node[5],
+			arm_sp.load_addr[index]);
+
 		/* Read owner field only for dualroot CoT */
 #if defined(ARM_COT_dualroot)
 		/* Owner is an optional field, no need to catch error */
 		fdtw_read_string(dtb, sp_node, "owner",
 				arm_sp.owner[index], ARM_SP_OWNER_NAME_LEN);
-#endif
+
 		/* If owner is empty mark it as SiP owned */
 		if ((strncmp(arm_sp.owner[index], "SiP",
 			     ARM_SP_OWNER_NAME_LEN) == 0) ||
@@ -120,7 +132,9 @@ int fconf_populate_arm_sp(uintptr_t config)
 			policies[plat_index].dev_handle = &fip_dev_handle;
 			policies[plat_index].check = open_fip;
 			plat_index++;
-		} else {
+		} else
+#endif /* ARM_COT_dualroot */
+		{
 			sp_mem_params_descs[index].image_id = sip_index;
 			policies[sip_index].image_spec =
 						(uintptr_t)&arm_sp.uuids[index];

@@ -16,8 +16,11 @@
 #include <lib/coreboot.h>
 
 /* Platform Includes */
+#include <emi_mpu.h>
 #include <mt_gic_v3.h>
+#include <mt_spm.h>
 #include <mt_timer.h>
+#include <mtk_dcm.h>
 #include <mtgpio.h>
 #include <plat_params.h>
 #include <plat_private.h>
@@ -83,6 +86,14 @@ void bl31_early_platform_setup2(u_register_t arg0, u_register_t arg1,
  ******************************************************************************/
 void bl31_platform_setup(void)
 {
+	/* Set dcm on */
+	if (!dcm_set_default()) {
+		ERROR("Failed to set default dcm on!!\n");
+	}
+
+	/* Initialize EMI MPU */
+	emi_mpu_init();
+
 	/* Initialize the GIC driver, CPU and distributor interfaces */
 	mt_gic_driver_init();
 	mt_gic_init();
@@ -90,11 +101,12 @@ void bl31_platform_setup(void)
 	mt_gpio_init();
 	mt_systimer_init();
 	generic_delay_timer_init();
+	spm_boot_init();
 }
 
 /*******************************************************************************
  * Perform the very early platform specific architectural setup here. At the
- * moment this is only intializes the mmu in a quick and dirty way.
+ * moment this is only initializes the mmu in a quick and dirty way.
  ******************************************************************************/
 void bl31_plat_arch_setup(void)
 {

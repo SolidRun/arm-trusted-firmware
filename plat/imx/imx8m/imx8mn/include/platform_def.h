@@ -1,5 +1,5 @@
 /*
- * Copyright 2020 NXP
+ * Copyright 2020-2022 NXP
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -8,6 +8,7 @@
 
 #include <lib/utils_def.h>
 #include <lib/xlat_tables/xlat_tables_v2.h>
+#include <plat/common/common_def.h>
 
 #define PLATFORM_LINKER_FORMAT		"elf64-littleaarch64"
 #define PLATFORM_LINKER_ARCH		aarch64
@@ -34,11 +35,21 @@
 #define PLAT_WAIT_RET_STATE		U(1)
 #define PLAT_STOP_OFF_STATE		U(3)
 
+#define PLAT_PRI_BITS			U(3)
+#define PLAT_SDEI_CRITICAL_PRI		0x10
+#define PLAT_SDEI_NORMAL_PRI		0x20
+#define PLAT_SDEI_SGI_PRIVATE		U(9)
+
 #define BL31_BASE			U(0x960000)
-#define BL31_LIMIT			U(0x980000)
+#define BL31_SIZE			SZ_128K
+#define BL31_LIMIT			(BL31_BASE + BL31_SIZE)
 
 /* non-secure uboot base */
+#ifndef PLAT_NS_IMAGE_OFFSET
 #define PLAT_NS_IMAGE_OFFSET		U(0x40200000)
+#endif
+
+#define BL32_FDT_OVERLAY_ADDR		(PLAT_NS_IMAGE_OFFSET + 0x3000000)
 
 /* GICv3 base address */
 #define PLAT_GICD_BASE			U(0x38800000)
@@ -57,13 +68,18 @@
 #define PLAT_CRASH_UART_CLK_IN_HZ	24000000
 #define IMX_CONSOLE_BAUDRATE		115200
 
+#define IMX_UART1_BASE			U(0x30860000)
+#define IMX_UART2_BASE			U(0x30890000)
+#define IMX_UART3_BASE			U(0x30880000)
+#define IMX_UART4_BASE			U(0x30a60000)
+
 #define IMX_AIPSTZ1			U(0x301f0000)
 #define IMX_AIPSTZ2			U(0x305f0000)
 #define IMX_AIPSTZ3			U(0x309f0000)
 #define IMX_AIPSTZ4			U(0x32df0000)
 
 #define IMX_AIPS_BASE			U(0x30000000)
-#define IMX_AIPS_SIZE			U(0xC00000)
+#define IMX_AIPS_SIZE			U(0x3000000)
 #define IMX_GPV_BASE			U(0x32000000)
 #define IMX_GPV_SIZE			U(0x800000)
 #define IMX_AIPS1_BASE			U(0x30200000)
@@ -85,6 +101,13 @@
 #define IMX_DDR_IPS_BASE		U(0x3d000000)
 #define IMX_DDR_IPS_SIZE		U(0x1800000)
 #define IMX_ROM_BASE			U(0x0)
+#define IMX_ROM_SIZE			U(0x40000)
+#define IMX_NS_OCRAM_BASE		U(0x900000)
+#define IMX_NS_OCRAM_SIZE		U(0x60000)
+#define IMX_CAAM_RAM_BASE		U(0x100000)
+#define IMX_CAAM_RAM_SIZE		U(0x10000)
+#define IMX_DRAM_BASE			U(0x40000000)
+#define IMX_DRAM_SIZE			U(0xc0000000)
 
 #define IMX_GIC_BASE			PLAT_GICD_BASE
 #define IMX_GIC_SIZE			U(0x200000)
@@ -122,8 +145,14 @@
 #define OCRAM_S_SIZE			U(0x8000)
 #define OCRAM_S_LIMIT			(OCRAM_S_BASE + OCRAM_S_SIZE)
 #define SAVED_DRAM_TIMING_BASE		OCRAM_S_BASE
+#define IMX_TCM_BASE			U(0x7E0000)
+#define IMX_TCM_SIZE			U(0x40000)
 
 #define COUNTER_FREQUENCY		8000000 /* 8MHz */
+
+#define GPV5_BASE_ADDR			U(0x32500000)
+#define FORCE_INCR_OFFSET		U(0x4044)
+#define FORCE_INCR_BIT_MASK		U(0x2)
 
 #define IMX_WDOG_B_RESET
 
@@ -131,5 +160,16 @@
 #define AIPS_MAP	MAP_REGION_FLAT(IMX_AIPS_BASE, IMX_AIPS_SIZE, MT_DEVICE | MT_RW) /* AIPS map */
 #define OCRAM_S_MAP	MAP_REGION_FLAT(OCRAM_S_BASE, OCRAM_S_SIZE, MT_DEVICE | MT_RW) /* OCRAM_S */
 #define DDRC_MAP	MAP_REGION_FLAT(IMX_DDRPHY_BASE, IMX_DDR_IPS_SIZE, MT_DEVICE | MT_RW) /* DDRMIX */
+#define CAAM_RAM_MAP	MAP_REGION_FLAT(IMX_CAAM_RAM_BASE, IMX_CAAM_RAM_SIZE, MT_MEMORY | MT_RW) /* CAMM RAM */
+#define NS_OCRAM_MAP	MAP_REGION_FLAT(IMX_NS_OCRAM_BASE, IMX_NS_OCRAM_SIZE, MT_MEMORY | MT_RW) /* NS OCRAM */
+#define ROM_MAP		MAP_REGION_FLAT(IMX_ROM_BASE, IMX_ROM_SIZE, MT_MEMORY | MT_RO) /* ROM code */
+
+/*
+ * Note: DRAM region is mapped with entire size available and uses MT_RW
+ * attributes.
+ * See details in docs/plat/imx8m.rst "High Assurance Boot (HABv4)" section
+ * for explanation of this mapping scheme.
+ */
+#define DRAM_MAP	MAP_REGION_FLAT(IMX_DRAM_BASE, IMX_DRAM_SIZE, MT_MEMORY | MT_RW | MT_NS) /* DRAM */
 
 #endif /* platform_def.h */

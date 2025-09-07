@@ -170,6 +170,9 @@ static int bl1_fwu_image_check_overlaps(unsigned int image_id)
 	uintptr_t checked_image_base, checked_image_end;
 
 	checked_desc = bl1_plat_get_image_desc(image_id);
+
+	assert(checked_desc != NULL);
+
 	checked_info = &checked_desc->image_info;
 
 	/* Image being checked mustn't be empty. */
@@ -420,7 +423,7 @@ static int bl1_fwu_image_auth(unsigned int image_id,
 		 * Image is in RESET state.
 		 * Check the parameters and authenticate the source image in place.
 		 */
-		if (bl1_plat_mem_check(image_src, image_size,	\
+		if (bl1_plat_mem_check(image_src, image_size,
 					desc->ep_info.h.attr) != 0) {
 			WARN("BL1-FWU: Authentication arguments source/size not mapped\n");
 			return -ENOMEM;

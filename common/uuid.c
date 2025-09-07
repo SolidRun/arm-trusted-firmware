@@ -1,12 +1,11 @@
 /*
- * Copyright (c) 2021, Arm Limited and Contributors. All rights reserved.
+ * Copyright (c) 2021-2023, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
 #include <assert.h>
 #include <errno.h>
-#include <stdint.h>
 #include <string.h>
 
 #include <common/debug.h>
@@ -73,6 +72,7 @@ static int read_hex(uint8_t *dest, char *hex_src, unsigned int hex_src_len)
 int read_uuid(uint8_t *dest, char *uuid)
 {
 	int err;
+	uint8_t *dest_start = dest;
 
 	/* Check that we have enough characters */
 	if (strnlen(uuid, UUID_STRING_LENGTH) != UUID_STRING_LENGTH) {
@@ -124,10 +124,34 @@ int read_uuid(uint8_t *dest, char *uuid)
 	if (err < 0) {
 		WARN("Error parsing UUID\n");
 		/* Clear the buffer on error */
-		memset((void *)dest, '\0', UUID_BYTES_LENGTH * sizeof(uint8_t));
+		memset((void *)dest_start, '\0', UUID_BYTES_LENGTH * sizeof(uint8_t));
 		return -EINVAL;
 	}
 
 	return 0;
 }
 
+/*
+ * Helper function to check if 2 UUIDs match.
+ */
+bool uuid_match(uint32_t *uuid1, uint32_t *uuid2)
+{
+	return !memcmp(uuid1, uuid2, sizeof(uint32_t) * 4);
+}
+
+/*
+ * Helper function to copy from one UUID struct to another.
+ */
+void copy_uuid(uint32_t *to_uuid, uint32_t *from_uuid)
+{
+	to_uuid[0] = from_uuid[0];
+	to_uuid[1] = from_uuid[1];
+	to_uuid[2] = from_uuid[2];
+	to_uuid[3] = from_uuid[3];
+}
+
+bool is_null_uuid(uint32_t *uuid)
+{
+	return (uuid[0] == 0 && uuid[1] == 0 &&
+		uuid[2] == 0 && uuid[3] == 0);
+}

@@ -22,58 +22,58 @@ static bl_mem_params_node_t bl2_mem_params_descs[] = {
 #ifdef SCP_BL2_BASE
 	/* Fill SCP_BL2 related information if it exists */
 	{
-	    .image_id = SCP_BL2_IMAGE_ID,
+		.image_id = SCP_BL2_IMAGE_ID,
 
-	    SET_STATIC_PARAM_HEAD(ep_info, PARAM_IMAGE_BINARY,
-		    VERSION_2, entry_point_info_t, SECURE | NON_EXECUTABLE),
+		SET_STATIC_PARAM_HEAD(ep_info, PARAM_IMAGE_BINARY,
+			VERSION_2, entry_point_info_t, SECURE | NON_EXECUTABLE),
 
-	    SET_STATIC_PARAM_HEAD(image_info, PARAM_IMAGE_BINARY,
-		    VERSION_2, image_info_t, 0),
-	    .image_info.image_base = SCP_BL2_BASE,
-	    .image_info.image_max_size = SCP_BL2_SIZE,
+		SET_STATIC_PARAM_HEAD(image_info, PARAM_IMAGE_BINARY,
+			VERSION_2, image_info_t, 0),
+		.image_info.image_base = SCP_BL2_BASE,
+		.image_info.image_max_size = SCP_BL2_SIZE,
 
-	    .next_handoff_image_id = INVALID_IMAGE_ID,
+		.next_handoff_image_id = INVALID_IMAGE_ID,
 	},
 #endif /* SCP_BL2_BASE */
 
 #ifdef EL3_PAYLOAD_BASE
 	/* Fill EL3 payload related information (BL31 is EL3 payload)*/
 	{
-	    .image_id = BL31_IMAGE_ID,
+		.image_id = BL31_IMAGE_ID,
 
-	    SET_STATIC_PARAM_HEAD(ep_info, PARAM_EP,
-		    VERSION_2, entry_point_info_t,
-		    SECURE | EXECUTABLE | EP_FIRST_EXE),
-	    .ep_info.pc = EL3_PAYLOAD_BASE,
-	    .ep_info.spsr = SPSR_64(MODE_EL3, MODE_SP_ELX,
-		    DISABLE_ALL_EXCEPTIONS),
+		SET_STATIC_PARAM_HEAD(ep_info, PARAM_EP,
+			VERSION_2, entry_point_info_t,
+			SECURE | EXECUTABLE | EP_FIRST_EXE),
+		.ep_info.pc = EL3_PAYLOAD_BASE,
+		.ep_info.spsr = SPSR_64(MODE_EL3, MODE_SP_ELX,
+			DISABLE_ALL_EXCEPTIONS),
 
-	    SET_STATIC_PARAM_HEAD(image_info, PARAM_EP,
-		    VERSION_2, image_info_t,
-		    IMAGE_ATTRIB_PLAT_SETUP | IMAGE_ATTRIB_SKIP_LOADING),
+		SET_STATIC_PARAM_HEAD(image_info, PARAM_EP,
+			VERSION_2, image_info_t,
+			IMAGE_ATTRIB_PLAT_SETUP | IMAGE_ATTRIB_SKIP_LOADING),
 
-	    .next_handoff_image_id = INVALID_IMAGE_ID,
+		.next_handoff_image_id = INVALID_IMAGE_ID,
 	},
 
 #else /* EL3_PAYLOAD_BASE */
 
 	/* Fill BL31 related information */
 	{
-	    .image_id = BL31_IMAGE_ID,
+		.image_id = BL31_IMAGE_ID,
 
-	    SET_STATIC_PARAM_HEAD(ep_info, PARAM_EP,
-		    VERSION_2, entry_point_info_t,
-		    SECURE | EXECUTABLE | EP_FIRST_EXE),
-	    .ep_info.pc = BL31_BASE,
-	    .ep_info.spsr = SPSR_64(MODE_EL3, MODE_SP_ELX,
-		    DISABLE_ALL_EXCEPTIONS),
+		SET_STATIC_PARAM_HEAD(ep_info, PARAM_EP,
+			VERSION_2, entry_point_info_t,
+			SECURE | EXECUTABLE | EP_FIRST_EXE),
+		.ep_info.pc = BL31_BASE,
+		.ep_info.spsr = SPSR_64(MODE_EL3, MODE_SP_ELX,
+			DISABLE_ALL_EXCEPTIONS),
 
-	    SET_STATIC_PARAM_HEAD(image_info, PARAM_EP,
-		    VERSION_2, image_info_t, IMAGE_ATTRIB_PLAT_SETUP),
-	    .image_info.image_base = BL31_BASE,
-	    .image_info.image_max_size = BL31_LIMIT - BL31_BASE,
+		SET_STATIC_PARAM_HEAD(image_info, PARAM_EP,
+			VERSION_2, image_info_t, IMAGE_ATTRIB_PLAT_SETUP),
+		.image_info.image_base = BL31_BASE,
+		.image_info.image_max_size = BL31_LIMIT - BL31_BASE,
 
-	    .next_handoff_image_id = BL33_IMAGE_ID,
+		.next_handoff_image_id = BL33_IMAGE_ID,
 	},
 #endif /* EL3_PAYLOAD_BASE */
 
@@ -88,9 +88,27 @@ static bl_mem_params_node_t bl2_mem_params_descs[] = {
 		.image_info.image_base = PLAT_NS_IMAGE_OFFSET,
 		.image_info.image_max_size =
 			0x0 + 0x40000000 - PLAT_NS_IMAGE_OFFSET,
+# if ARM_LINUX_KERNEL_AS_BL33 != 0
+		.next_handoff_image_id = NT_FW_CONFIG_ID,
+	},
+
+	{
+		.image_id = NT_FW_CONFIG_ID,
+		SET_STATIC_PARAM_HEAD(ep_info, PARAM_IMAGE_BINARY,
+			VERSION_2, entry_point_info_t,
+			NON_SECURE | NON_EXECUTABLE),
+		SET_STATIC_PARAM_HEAD(image_info, PARAM_IMAGE_BINARY,
+			VERSION_2, image_info_t, 0),
+		.image_info.image_base = ARM_PRELOADED_DTB_BASE,
+		.image_info.image_max_size =
+			0x0 + 0x40000000 - ARM_PRELOADED_DTB_BASE,
 
 		.next_handoff_image_id = INVALID_IMAGE_ID,
 	},
+#else
+	.next_handoff_image_id = INVALID_IMAGE_ID,
+	},
+# endif
 };
 
 REGISTER_BL_IMAGE_DESCS(bl2_mem_params_descs)

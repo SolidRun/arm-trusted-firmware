@@ -1,25 +1,25 @@
 #
-# Copyright (c) 2019-2020, Arm Limited. All rights reserved.
+# Copyright (c) 2019-2025, Arm Limited. All rights reserved.
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
 
 # Firmware Configuration Framework sources
+include common/fdt_wrappers.mk
 include lib/fconf/fconf.mk
+
+BL1_SOURCES		+=	${FCONF_SOURCES} ${FCONF_DYN_SOURCES}
+BL2_SOURCES		+=	${FCONF_SOURCES} ${FCONF_DYN_SOURCES}
 
 # Add `libfdt` and Arm common helpers required for Dynamic Config
 include lib/libfdt/libfdt.mk
 
 DYN_CFG_SOURCES		+=	plat/arm/common/arm_dyn_cfg.c		\
-				plat/arm/common/arm_dyn_cfg_helpers.c	\
-				common/fdt_wrappers.c
+				plat/arm/common/arm_dyn_cfg_helpers.c
 
-# Include GICv2 driver files
-include drivers/arm/gic/v2/gicv2.mk
+DYN_CFG_SOURCES		+=	${FDT_WRAPPERS_SOURCES}
 
-A5DS_GIC_SOURCES	:=	${GICV2_SOURCES}			\
-				plat/common/plat_gicv2.c		\
-				plat/arm/common/arm_gicv2.c
+USE_GIC_DRIVER		:=	2
 
 A5DS_SECURITY_SOURCES	:=	plat/arm/board/a5ds/a5ds_security.c
 
@@ -70,9 +70,7 @@ BL2_SOURCES		+=	lib/aarch32/arm32_aeabi_divmod.c		\
 				${DYN_CFG_SOURCES}				\
 				${A5DS_SECURITY_SOURCES}
 
-# Add the FDT_SOURCES and options for Dynamic Config (only for Unix env)
-ifdef UNIX_MK
-
+# Add the FDT_SOURCES and options for Dynamic Config
 FW_CONFIG	:=      ${BUILD_PLAT}/fdts/a5ds_fw_config.dtb
 TB_FW_CONFIG	:=	${BUILD_PLAT}/fdts/a5ds_tb_fw_config.dtb
 
@@ -89,11 +87,14 @@ $(eval $(call TOOL_ADD_PAYLOAD,${FVP_HW_CONFIG},--hw-config,${FVP_HW_CONFIG}))
 FDT_SOURCES		+=	plat/arm/board/a5ds/fdts/a5ds_fw_config.dts \
 				plat/arm/board/a5ds/fdts/a5ds_tb_fw_config.dts \
 					${FVP_HW_CONFIG_DTS}
-endif
 
 NEED_BL32 := yes
 
-MULTI_CONSOLE_API		:=	1
+ifeq (${AARCH32_SP},none)
+    $(error Variable AARCH32_SP has to be set for AArch32)
+endif
+
+ARM_DISABLE_TRUSTED_WDOG	:=	1
 
 PLAT_BL_COMMON_SOURCES	+=	lib/xlat_tables/aarch32/nonlpae_tables.c
 

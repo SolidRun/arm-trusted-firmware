@@ -1,10 +1,11 @@
 /*
- * Copyright (c) 2020, MediaTek Inc. All rights reserved.
+ * Copyright (c) 2021, MediaTek Inc. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
 #include <cdefs.h>
+#include <common/debug.h>
 
 #include <lib/mmio.h>
 #include <lib/utils_def.h>
@@ -62,7 +63,7 @@
 #define MCDI_INIT_2			2
 #define MCDI_INIT_DONE			3
 
-static int mcdi_init_status __section("tzfw_coherent_mem");
+static int mcdi_init_status __section(".tzfw_coherent_mem");
 
 static inline uint32_t mcdi_mbox_read(uint32_t id)
 {
@@ -143,6 +144,8 @@ int mcdi_try_init(void)
 	if (mcdi_init_status == MCDI_INIT_2 && mcdi_init_2() == 0) {
 		mcdi_init_status = MCDI_INIT_DONE;
 	}
+
+	INFO("mcdi ready for mcusys-off-idle and system suspend\n");
 
 	return (mcdi_init_status == MCDI_INIT_DONE) ? 0 : mcdi_init_status;
 }

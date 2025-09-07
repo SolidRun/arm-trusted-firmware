@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2018-2024, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -8,26 +8,22 @@
 #include <string.h>
 #include <libfdt.h>
 
-#include <platform_def.h>
+#if CRYPTO_SUPPORT
+#include <mbedtls/version.h>
+#endif /* CRYPTO_SUPPORT */
 
 #include <common/debug.h>
 #include <common/desc_image_load.h>
 #include <common/tbbr/tbbr_img_def.h>
-#if TRUSTED_BOARD_BOOT
-#include <drivers/auth/mbedtls/mbedtls_config.h>
-#if MEASURED_BOOT
-#include <drivers/auth/crypto_mod.h>
-#include <mbedtls/md.h>
-#endif
-#endif
 #include <lib/fconf/fconf.h>
 #include <lib/fconf/fconf_dyn_cfg_getter.h>
 #include <lib/fconf/fconf_tbbr_getter.h>
 
 #include <plat/arm/common/arm_dyn_cfg_helpers.h>
 #include <plat/arm/common/plat_arm.h>
+#include <platform_def.h>
 
-#if TRUSTED_BOARD_BOOT
+#if CRYPTO_SUPPORT && !TRANSFER_LIST
 
 static void *mbedtls_heap_addr;
 static size_t mbedtls_heap_size;
@@ -49,9 +45,9 @@ int arm_get_mbedtls_heap(void **heap_addr, size_t *heap_size)
 	assert(heap_addr != NULL);
 	assert(heap_size != NULL);
 
-#if defined(IMAGE_BL1) || BL2_AT_EL3
+#if defined(IMAGE_BL1) || RESET_TO_BL2 || defined(IMAGE_BL31)
 
-	/* If in BL1 or BL2_AT_EL3 define a heap */
+	/* If in BL1 or RESET_TO_BL2 define a heap */
 	static unsigned char heap[TF_MBEDTLS_HEAP_SIZE];
 
 	*heap_addr = heap;
@@ -115,84 +111,16 @@ void arm_bl1_set_mbedtls_heap(void)
 		 * images. It's critical because BL2 won't be able to proceed
 		 * without the heap info.
 		 *
-		 * In MEASURED_BOOT case flushing is done in
-		 * arm_bl1_set_bl2_hash() function which is called after heap
-		 * information is written in the DTB.
+		 * In MEASURED_BOOT case flushing is done in a function which
+		 * is called after heap information is written in the DTB.
 		 */
 		flush_dcache_range(tb_fw_cfg_dtb, fdt_totalsize(dtb));
 #endif /* !MEASURED_BOOT */
 	}
 }
+#endif /* CRYPTO_SUPPORT && !TRANSFER_LIST */
 
-#if MEASURED_BOOT
-/*
- * Calculates and writes BL2 hash data to TB_FW_CONFIG DTB.
- * Executed only from BL1.
- */
-void arm_bl1_set_bl2_hash(const image_desc_t *image_desc)
-{
-	unsigned char hash_data[MBEDTLS_MD_MAX_SIZE];
-	const image_info_t image_info = image_desc->image_info;
-	uintptr_t tb_fw_cfg_dtb;
-	int err;
-	const struct dyn_cfg_dtb_info_t *tb_fw_config_info;
-
-	tb_fw_config_info = FCONF_GET_PROPERTY(dyn_cfg, dtb, TB_FW_CONFIG_ID);
-	assert(tb_fw_config_info != NULL);
-
-	tb_fw_cfg_dtb = tb_fw_config_info->config_addr;
-
-	/*
-	 * If tb_fw_cfg_dtb==NULL then DTB is not present for the current
-	 * platform. As such, we cannot write to the DTB at all and pass
-	 * measured data.
-	 */
-	if (tb_fw_cfg_dtb == 0UL) {
-		panic();
-	}
-
-	/* Calculate hash */
-	err = crypto_mod_calc_hash(MBEDTLS_MD_ID,
-					(void *)image_info.image_base,
-					image_info.image_size, hash_data);
-	if (err != 0) {
-		ERROR("%scalculate%s\n", "BL1: unable to ",
-						" BL2 hash");
-		panic();
-	}
-
-	err = arm_set_bl2_hash_info((void *)tb_fw_cfg_dtb, hash_data);
-	if (err < 0) {
-		ERROR("%swrite%sdata%s\n", "BL1: unable to ",
-					" BL2 hash ", "to DTB\n");
-		panic();
-	}
-
-	/*
-	 * Ensure that the info written to the DTB is visible to other
-	 * images. It's critical because BL2 won't be able to proceed
-	 * without the heap info and its hash data.
-	 */
-	flush_dcache_range(tb_fw_cfg_dtb, fdt_totalsize((void *)tb_fw_cfg_dtb));
-}
-
-/*
- * Reads TCG_DIGEST_SIZE bytes of BL2 hash data from the DTB.
- * Executed only from BL2.
- */
-void arm_bl2_get_hash(void *data)
-{
-	const void *bl2_hash;
-
-	assert(data != NULL);
-
-	/* Retrieve TCG_DIGEST_SIZE bytes of BL2 hash data from the DTB */
-	bl2_hash = FCONF_GET_PROPERTY(tbbr, dyn_config, bl2_hash_data);
-	(void)memcpy(data, bl2_hash, TCG_DIGEST_SIZE);
-}
-#endif /* MEASURED_BOOT */
-#endif /* TRUSTED_BOARD_BOOT */
-
+#if IMAGE_BL2
 /*
  * BL2 utility function to initialize dynamic configuration specified by
  * FW_CONFIG. Populate the bl_mem_params_node_t of other FW_CONFIGs if
@@ -204,6 +132,7 @@ void arm_bl2_dyn_cfg_init(void)
 	bl_mem_params_node_t *cfg_mem_params = NULL;
 	uintptr_t image_base;
 	uint32_t image_size;
+	unsigned int error_config_id = MAX_IMAGE_IDS;
 	const unsigned int config_ids[] = {
 			HW_CONFIG_ID,
 			SOC_FW_CONFIG_ID,
@@ -215,17 +144,17 @@ void arm_bl2_dyn_cfg_init(void)
 
 	/* Iterate through all the fw config IDs */
 	for (i = 0; i < ARRAY_SIZE(config_ids); i++) {
-		/* Get the config load address and size from TB_FW_CONFIG */
+		/* Get the config load address and size */
 		cfg_mem_params = get_bl_mem_params_node(config_ids[i]);
 		if (cfg_mem_params == NULL) {
-			VERBOSE("%sHW_CONFIG in bl_mem_params_node\n",
-				"Couldn't find ");
+			VERBOSE("%sconfig_id = %d in bl_mem_params_node\n",
+				"Couldn't find ", config_ids[i]);
 			continue;
 		}
 
 		dtb_info = FCONF_GET_PROPERTY(dyn_cfg, dtb, config_ids[i]);
 		if (dtb_info == NULL) {
-			VERBOSE("%sconfig_id %d load info in TB_FW_CONFIG\n",
+			VERBOSE("%sconfig_id %d load info in FW_CONFIG\n",
 				"Couldn't find ", config_ids[i]);
 			continue;
 		}
@@ -241,17 +170,32 @@ void arm_bl2_dyn_cfg_init(void)
 		if (config_ids[i] != HW_CONFIG_ID) {
 
 			if (check_uptr_overflow(image_base, image_size)) {
+				VERBOSE("%s=%d as its %s is overflowing uptr\n",
+					"skip loading of firmware config",
+					config_ids[i],
+					"load-address");
+				error_config_id = config_ids[i];
 				continue;
 			}
 #ifdef	BL31_BASE
 			/* Ensure the configs don't overlap with BL31 */
 			if ((image_base >= BL31_BASE) &&
 			    (image_base <= BL31_LIMIT)) {
+				VERBOSE("%s=%d as its %s is overlapping BL31\n",
+					"skip loading of firmware config",
+					config_ids[i],
+					"load-address");
+				error_config_id = config_ids[i];
 				continue;
 			}
 #endif
 			/* Ensure the configs are loaded in a valid address */
 			if (image_base < ARM_BL_RAM_BASE) {
+				VERBOSE("%s=%d as its %s is invalid\n",
+					"skip loading of firmware config",
+					config_ids[i],
+					"load-address");
+				error_config_id = config_ids[i];
 				continue;
 			}
 #ifdef BL32_BASE
@@ -261,6 +205,11 @@ void arm_bl2_dyn_cfg_init(void)
 			 */
 			if ((image_base >= BL32_BASE) &&
 			    (image_base <= BL32_LIMIT)) {
+				VERBOSE("%s=%d as its %s is overlapping BL32\n",
+					"skip loading of firmware config",
+					config_ids[i],
+					"load-address");
+				error_config_id = config_ids[i];
 				continue;
 			}
 #endif
@@ -275,4 +224,10 @@ void arm_bl2_dyn_cfg_init(void)
 		 */
 		cfg_mem_params->image_info.h.attr &= ~IMAGE_ATTRIB_SKIP_LOADING;
 	}
+
+	if (error_config_id != MAX_IMAGE_IDS) {
+		ERROR("Invalid config file %u\n", error_config_id);
+		panic();
+	}
 }
+#endif /* IMAGE_BL2 */

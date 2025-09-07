@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2019-2020, ARM Limited. All rights reserved.
+ * Copyright (c) 2019-2025, Arm Limited. All rights reserved.
+ * Copyright (c) 2021-2023, NVIDIA Corporation. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -10,27 +11,107 @@
 #include <cortex_a78_ae.h>
 #include <cpu_macros.S>
 #include <plat_macros.S>
+#include "wa_cve_2022_23960_bhb_vector.S"
 
 /* Hardware handled coherency */
 #if HW_ASSISTED_COHERENCY == 0
 #error "cortex_a78_ae must be compiled with HW_ASSISTED_COHERENCY enabled"
 #endif
 
-	/* -------------------------------------------------
-	 * The CPU Ops reset function for Cortex-A78-AE
-	 * -------------------------------------------------
+#if WORKAROUND_CVE_2022_23960
+	wa_cve_2022_23960_bhb_vector_table CORTEX_A78_AE_BHB_LOOP_COUNT, cortex_a78_ae
+#endif /* WORKAROUND_CVE_2022_23960 */
+
+cpu_reset_prologue cortex_a78_ae
+
+workaround_reset_start cortex_a78_ae, ERRATUM(1941500), ERRATA_A78_AE_1941500
+	sysreg_bit_set CORTEX_A78_AE_CPUECTLR_EL1, CORTEX_A78_AE_CPUECTLR_EL1_BIT_8
+workaround_reset_end cortex_a78_ae, ERRATUM(1941500)
+
+check_erratum_ls cortex_a78_ae, ERRATUM(1941500), CPU_REV(0, 1)
+
+workaround_reset_start cortex_a78_ae, ERRATUM(1951502), ERRATA_A78_AE_1951502
+	msr	S3_6_c15_c8_0, xzr
+	ldr	x0, =0x10E3900002
+	msr	S3_6_c15_c8_2, x0
+	ldr	x0, =0x10FFF00083
+	msr	S3_6_c15_c8_3, x0
+	ldr	x0, =0x2001003FF
+	msr	S3_6_c15_c8_1, x0
+
+	mov	x0, #1
+	msr	S3_6_c15_c8_0, x0
+	ldr	x0, =0x10E3800082
+	msr	S3_6_c15_c8_2, x0
+	ldr	x0, =0x10FFF00083
+	msr	S3_6_c15_c8_3, x0
+	ldr	x0, =0x2001003FF
+	msr	S3_6_c15_c8_1, x0
+
+	mov	x0, #2
+	msr	S3_6_c15_c8_0, x0
+	ldr	x0, =0x10E3800200
+	msr	S3_6_c15_c8_2, x0
+	ldr	x0, =0x10FFF003E0
+	msr	S3_6_c15_c8_3, x0
+	ldr	x0, =0x2001003FF
+	msr	S3_6_c15_c8_1, x0
+workaround_reset_end cortex_a78_ae, ERRATUM(1951502)
+
+check_erratum_ls cortex_a78_ae, ERRATUM(1951502), CPU_REV(0, 1)
+
+workaround_reset_start cortex_a78_ae, ERRATUM(2376748), ERRATA_A78_AE_2376748
+	/* -------------------------------------------------------
+	 * Set CPUACTLR2_EL1[0] to 1 to force PLDW/PFRM ST to
+	 * behave like PLD/PRFM LD and not cause invalidations to
+	 * other PE caches. There might be a small performance
+	 * degradation to this workaround for certain workloads
+	 * that share data.
+	 * -------------------------------------------------------
 	 */
-#if ENABLE_AMU
-func cortex_a78_ae_reset_func
+	sysreg_bit_set CORTEX_A78_AE_ACTLR2_EL1, CORTEX_A78_AE_ACTLR2_EL1_BIT_0
+workaround_reset_end cortex_a78_ae, ERRATUM(2376748)
+
+check_erratum_ls cortex_a78_ae, ERRATUM(2376748), CPU_REV(0, 2)
+
+workaround_reset_start cortex_a78_ae, ERRATUM(2395408), ERRATA_A78_AE_2395408
+	/* --------------------------------------------------------
+	 * Disable folding of demand requests into older prefetches
+	 * with L2 miss requests outstanding by setting the
+	 * CPUACTLR2_EL1[40] to 1.
+	 * --------------------------------------------------------
+	 */
+	sysreg_bit_set CORTEX_A78_AE_ACTLR2_EL1, CORTEX_A78_AE_ACTLR2_EL1_BIT_40
+workaround_reset_end cortex_a78_ae, ERRATUM(2395408)
+
+check_erratum_ls cortex_a78_ae, ERRATUM(2395408), CPU_REV(0, 1)
+
+workaround_reset_start cortex_a78_ae, CVE(2022, 23960), WORKAROUND_CVE_2022_23960
+#if IMAGE_BL31
+	/*
+	 * The Cortex-A78AE generic vectors are overridden to apply errata
+	 * mitigation on exception entry from lower ELs.
+	 */
+	override_vector_table wa_cve_vbar_cortex_a78_ae
+#endif /* IMAGE_BL31 */
+workaround_reset_end cortex_a78_ae, CVE(2022, 23960)
+
+check_erratum_chosen cortex_a78_ae, CVE(2022, 23960), WORKAROUND_CVE_2022_23960
+
+/* Disable hardware page aggregation. Enables mitigation for `CVE-2024-5660` */
+workaround_reset_start cortex_a78_ae, CVE(2024, 5660), WORKAROUND_CVE_2024_5660
+	sysreg_bit_set CORTEX_A78_AE_CPUECTLR_EL1, BIT(46)
+workaround_reset_end cortex_a78_ae, CVE(2024, 5660)
+
+check_erratum_ls cortex_a78_ae, CVE(2024, 5660), CPU_REV(0, 3)
+
+cpu_reset_func_start cortex_a78_ae
+#if ENABLE_FEAT_AMU
 	/* Make sure accesses from EL0/EL1 and EL2 are not trapped to EL3 */
-	mrs	x0, actlr_el3
-	bic	x0, x0, #CORTEX_A78_ACTLR_TAM_BIT
-	msr	actlr_el3, x0
+	sysreg_bit_clear actlr_el3, CORTEX_A78_ACTLR_TAM_BIT
 
 	/* Make sure accesses from non-secure EL0/EL1 are not trapped to EL2 */
-	mrs	x0, actlr_el2
-	bic	x0, x0, #CORTEX_A78_ACTLR_TAM_BIT
-	msr	actlr_el2, x0
+	sysreg_bit_clear actlr_el2, CORTEX_A78_ACTLR_TAM_BIT
 
 	/* Enable group0 counters */
 	mov	x0, #CORTEX_A78_AMU_GROUP0_MASK
@@ -39,11 +120,8 @@ func cortex_a78_ae_reset_func
 	/* Enable group1 counters */
 	mov	x0, #CORTEX_A78_AMU_GROUP1_MASK
 	msr	CPUAMCNTENSET1_EL0, x0
-	isb
-
-	ret
-endfunc cortex_a78_ae_reset_func
 #endif
+cpu_reset_func_end cortex_a78_ae
 
 	/* -------------------------------------------------------
 	 * HW will do the cache maintenance while powering down
@@ -54,21 +132,10 @@ func cortex_a78_ae_core_pwr_dwn
 	 * Enable CPU power down bit in power control register
 	 * -------------------------------------------------------
 	 */
-	mrs	x0, CORTEX_A78_CPUPWRCTLR_EL1
-	orr	x0, x0, #CORTEX_A78_CPUPWRCTLR_EL1_CORE_PWRDN_EN_BIT
-	msr	CORTEX_A78_CPUPWRCTLR_EL1, x0
+	sysreg_bit_set CORTEX_A78_CPUPWRCTLR_EL1, CORTEX_A78_CPUPWRCTLR_EL1_CORE_PWRDN_EN_BIT
 	isb
 	ret
 endfunc cortex_a78_ae_core_pwr_dwn
-
-	/*
-	 * Errata printing function for cortex_a78_ae. Must follow AAPCS.
-	 */
-#if REPORT_ERRATA
-func cortex_a78_ae_errata_report
-	ret
-endfunc cortex_a78_ae_errata_report
-#endif
 
 	/* -------------------------------------------------------
 	 * This function provides cortex_a78_ae specific
@@ -89,12 +156,6 @@ func cortex_a78_ae_cpu_reg_dump
 	ret
 endfunc cortex_a78_ae_cpu_reg_dump
 
-#if ENABLE_AMU
-#define A78_AE_RESET_FUNC cortex_a78_ae_reset_func
-#else
-#define A78_AE_RESET_FUNC CPU_NO_RESET_FUNC
-#endif
-
 declare_cpu_ops cortex_a78_ae, CORTEX_A78_AE_MIDR, \
-	A78_AE_RESET_FUNC, \
+	cortex_a78_ae_reset_func, \
 	cortex_a78_ae_core_pwr_dwn

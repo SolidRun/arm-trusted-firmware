@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2019, Intel Corporation. All rights reserved.
+ * Copyright (c) 2019-2023, Intel Corporation. All rights reserved.
+ * Copyright (c) 2024, Altera Corporation. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -7,7 +8,6 @@
 #ifndef SOCFPGA_PRIVATE_H
 #define SOCFPGA_PRIVATE_H
 
-#include "socfpga_plat_def.h"
 
 #define EMMC_DESC_SIZE		(1<<20)
 
@@ -24,8 +24,8 @@ typedef enum {
 	BOOT_SOURCE_FPGA = 0,
 	BOOT_SOURCE_SDMMC,
 	BOOT_SOURCE_NAND,
-	BOOT_SOURCE_RSVD,
-	BOOT_SOURCE_QSPI
+	BOOT_SOURCE_QSPI,
+	BOOT_SOURCE_RSVD
 } boot_source_type;
 
 /*******************************************************************************
@@ -34,7 +34,7 @@ typedef enum {
 
 void enable_nonsecure_access(void);
 
-void socfpga_io_setup(int boot_source);
+void socfpga_io_setup(int boot_source, unsigned long offset);
 
 void socfgpa_configure_mmu_el3(unsigned long total_base,
 			unsigned long total_size,
@@ -54,6 +54,8 @@ void socfpga_configure_mmu_el1(unsigned long total_base,
 void socfpga_delay_timer_init(void);
 
 void socfpga_gic_driver_init(void);
+
+void socfpga_delay_timer_init_args(void);
 
 uint32_t socfpga_get_spsr_for_bl32_entry(void);
 

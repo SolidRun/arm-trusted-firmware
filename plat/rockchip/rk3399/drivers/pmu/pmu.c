@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2019, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2016-2021, ARM Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -64,7 +64,7 @@ static gicv3_redist_ctx_t rdist_ctx;
 
 static uint32_t core_pm_cfg_info[PLATFORM_CORE_COUNT]
 #if USE_COHERENT_MEM
-__attribute__ ((section("tzfw_coherent_mem")))
+__attribute__ ((section(".tzfw_coherent_mem")))
 #endif
 ;/* coheront */
 
@@ -1324,6 +1324,7 @@ void wdt_register_save(void)
 		store_wdt0[i] = mmio_read_32(WDT0_BASE + i * 4);
 		store_wdt1[i] = mmio_read_32(WDT1_BASE + i * 4);
 	}
+	pmu_enable_watchdog0 = (uint8_t) store_wdt0[0] & 0x1;
 }
 
 void wdt_register_restore(void)

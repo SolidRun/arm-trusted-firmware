@@ -214,23 +214,22 @@ endif
 endif
 
 # Include mbedtls if it can be located
-MBEDTLS_DIR := mbedtls
-MBEDTLS_CHECK := $(shell find ${MBEDTLS_DIR}/include -name '${MBEDTLS_DIR}')
+MBEDTLS_DIR ?= mbedtls
+MBEDTLS_CHECK := $(shell find ${MBEDTLS_DIR}/include -name '$(notdir ${MBEDTLS_DIR})')
 
 ifneq (${MBEDTLS_CHECK},)
 $(info Found mbedTLS at ${MBEDTLS_DIR})
 PLAT_INCLUDES += -I${MBEDTLS_DIR}/include/mbedtls
-# Specify mbedTLS configuration file
-MBEDTLS_CONFIG_FILE	:=	"<brcm_mbedtls_config.h>"
 
 # By default, use RSA keys
 KEY_ALG := rsa_1_5
 
 # Include common TBB sources
-AUTH_SOURCES	+= 	drivers/auth/auth_mod.c \
-			drivers/auth/crypto_mod.c \
-			drivers/auth/img_parser_mod.c \
-			drivers/auth/tbbr/tbbr_cot_common.c \
+AUTH_MK := drivers/auth/auth.mk
+$(info Including ${AUTH_MK})
+include ${AUTH_MK}
+
+AUTH_SOURCES	+= 	drivers/auth/tbbr/tbbr_cot_common.c \
 			drivers/auth/tbbr/tbbr_cot_bl2.c
 
 BL2_SOURCES	+=	${AUTH_SOURCES}

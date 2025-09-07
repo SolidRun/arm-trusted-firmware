@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2018, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2015-2021, ARM Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -8,8 +8,16 @@
 
 #include <lib/utils_def.h>
 
+/* Base address of all V2M */
+#ifdef PLAT_V2M_OFFSET
+#define V2M_OFFSET			PLAT_V2M_OFFSET
+#else
+#define V2M_OFFSET			UL(0)
+#endif
+
 /* V2M motherboard system registers & offsets */
 #define V2M_SYSREGS_BASE		UL(0x1c010000)
+#define V2M_SYSREGS_SIZE		UL(0x00010000)
 #define V2M_SYS_ID			UL(0x0)
 #define V2M_SYS_SWITCH			UL(0x4)
 #define V2M_SYS_LED			UL(0x8)
@@ -69,18 +77,20 @@
 
 
 /* NOR Flash */
-#define V2M_FLASH0_BASE			UL(0x08000000)
+#define V2M_FLASH0_BASE			(V2M_OFFSET + UL(0x08000000))
 #define V2M_FLASH0_SIZE			UL(0x04000000)
-#define V2M_FLASH_BLOCK_SIZE		UL(0x00040000)	/* 256 KB */
+#define V2M_FLASH1_BASE			(V2M_OFFSET + UL(0x0c000000))
+#define V2M_FLASH1_SIZE			UL(0x04000000)
+#define V2M_FLASH_BLOCK_SIZE		UL(0x00040000) /* 256 KB */
 
-#define V2M_IOFPGA_BASE			UL(0x1c000000)
+#define V2M_IOFPGA_BASE			(V2M_OFFSET + UL(0x1c000000))
 #define V2M_IOFPGA_SIZE			UL(0x03000000)
 
 /* PL011 UART related constants */
-#define V2M_IOFPGA_UART0_BASE		UL(0x1c090000)
-#define V2M_IOFPGA_UART1_BASE		UL(0x1c0a0000)
-#define V2M_IOFPGA_UART2_BASE		UL(0x1c0b0000)
-#define V2M_IOFPGA_UART3_BASE		UL(0x1c0c0000)
+#define V2M_IOFPGA_UART0_BASE		(V2M_OFFSET + UL(0x1c090000))
+#define V2M_IOFPGA_UART1_BASE		(V2M_OFFSET + UL(0x1c0a0000))
+#define V2M_IOFPGA_UART2_BASE		(V2M_OFFSET + UL(0x1c0b0000))
+#define V2M_IOFPGA_UART3_BASE		(V2M_OFFSET + UL(0x1c0c0000))
 
 #define V2M_IOFPGA_UART0_CLK_IN_HZ	24000000
 #define V2M_IOFPGA_UART1_CLK_IN_HZ	24000000
@@ -88,11 +98,11 @@
 #define V2M_IOFPGA_UART3_CLK_IN_HZ	24000000
 
 /* SP804 timer related constants */
-#define V2M_SP804_TIMER0_BASE		UL(0x1C110000)
-#define V2M_SP804_TIMER1_BASE		UL(0x1C120000)
+#define V2M_SP804_TIMER0_BASE		(V2M_OFFSET + UL(0x1C110000))
+#define V2M_SP804_TIMER1_BASE		(V2M_OFFSET + UL(0x1C120000))
 
 /* SP810 controller */
-#define V2M_SP810_BASE			UL(0x1c020000)
+#define V2M_SP810_BASE			(V2M_OFFSET + UL(0x1c020000))
 #define V2M_SP810_CTRL_TIM0_SEL		BIT_32(15)
 #define V2M_SP810_CTRL_TIM1_SEL		BIT_32(17)
 #define V2M_SP810_CTRL_TIM2_SEL		BIT_32(19)
@@ -119,6 +129,14 @@
 						V2M_FLASH0_SIZE,	\
 						MT_RO_DATA | MT_SECURE)
 
+#define V2M_MAP_FLASH1_RW		MAP_REGION_FLAT(V2M_FLASH1_BASE,\
+						V2M_FLASH1_SIZE,	\
+						MT_DEVICE | MT_RW | MT_SECURE)
+
+#define V2M_MAP_FLASH1_RO		MAP_REGION_FLAT(V2M_FLASH1_BASE,\
+						V2M_FLASH1_SIZE,	\
+						MT_RO_DATA | MT_SECURE)
+
 #define V2M_MAP_IOFPGA			MAP_REGION_FLAT(V2M_IOFPGA_BASE,\
 						V2M_IOFPGA_SIZE,		\
 						MT_DEVICE | MT_RW | MT_SECURE)
@@ -129,5 +147,19 @@
 						V2M_IOFPGA_SIZE,	\
 						MT_DEVICE | MT_RW | MT_SECURE | MT_USER)
 
+#define V2M_MAP_SECURE_SYSTEMREG_EL0		MAP_REGION_FLAT(	\
+						V2M_SYSREGS_BASE,															\
+						V2M_SYSREGS_SIZE,															\
+						MT_DEVICE | MT_RW | MT_SECURE | MT_USER)
+
+#define V2M_MAP_FLASH0_RW_EL0		MAP_REGION_FLAT(	\
+						V2M_FLASH0_BASE,											\
+						V2M_FLASH0_SIZE,											\
+						MT_DEVICE | MT_RW | MT_SECURE | MT_USER)
+
+#define V2M_MAP_FLASH1_RW_EL0		MAP_REGION_FLAT(	\
+						V2M_FLASH1_BASE,											\
+						V2M_FLASH1_SIZE,											\
+						MT_DEVICE | MT_RW | MT_SECURE | MT_USER)
 
 #endif /* V2M_DEF_H */

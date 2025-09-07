@@ -1,17 +1,19 @@
 /*
- * Copyright (c) 2017-2020, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2017-2024, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
 #include <assert.h>
 #include <errno.h>
+#include <inttypes.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 
 #include <platform_def.h>
 
+#include <arch_features.h>
 #include <arch_helpers.h>
 #include <common/debug.h>
 #include <lib/utils_def.h>
@@ -95,7 +97,23 @@ static void xlat_desc_print(const xlat_ctx_t *ctx, uint64_t desc)
 			  ? "-USER" : "-PRIV");
 	}
 
+#if ENABLE_RME
+	switch (desc & LOWER_ATTRS(EL3_S1_NSE | NS)) {
+	case 0ULL:
+		printf("-S");
+		break;
+	case LOWER_ATTRS(NS):
+		printf("-NS");
+		break;
+	case LOWER_ATTRS(EL3_S1_NSE):
+		printf("-RT");
+		break;
+	default: /* LOWER_ATTRS(EL3_S1_NSE | NS) */
+		printf("-RL");
+	}
+#else
 	printf(((LOWER_ATTRS(NS) & desc) != 0ULL) ? "-NS" : "-S");
+#endif
 
 #ifdef __aarch64__
 	/* Check Guarded Page bit */
@@ -183,7 +201,7 @@ static void xlat_tables_print_internal(xlat_ctx_t *ctx, uintptr_t table_base_va,
 					(uint64_t *)addr_inner,
 					XLAT_TABLE_ENTRIES, level + 1U);
 			} else {
-				printf("%sVA:0x%lx PA:0x%llx size:0x%zx ",
+				printf("%sVA:0x%lx PA:0x%" PRIx64 " size:0x%zx ",
 				       level_spacers[level], table_idx_va,
 				       (uint64_t)(desc & TABLE_ADDR_MASK),
 				       level_size);
@@ -402,10 +420,59 @@ static int xlat_get_mem_attributes_internal(const xlat_ctx_t *ctx,
 			*attributes |= MT_USER;
 	}
 
-	uint64_t ns_bit = (desc >> NS_SHIFT) & 1U;
+	uint64_t ns_bit = (desc >> NS_SHIFT) & 1ULL;
 
-	if (ns_bit == 1U)
+#if ENABLE_RME
+	uint64_t nse_bit = (desc >> NSE_SHIFT) & 1ULL;
+	uint32_t sec_state = (uint32_t)(ns_bit | (nse_bit << 1ULL));
+
+/*
+ * =========================================================
+ *  NSE    NS  |  Output PA space
+ * =========================================================
+ *    0    0   |  Secure (if S-EL2 is present, else invalid)
+ *    0    1   |  Non-secure
+ *    1    0   |  Root
+ *    1    1   |  Realm
+ *==========================================================
+ */
+	switch (sec_state) {
+	case 0U:
+		/*
+		 * We expect to get Secure mapping on an RME system only if
+		 * S-EL2 is enabled.
+		 * Hence panic() if we hit the case without EEL2 being enabled.
+		 */
+		if ((read_scr_el3() & SCR_EEL2_BIT) == 0ULL) {
+			ERROR("A secure descriptor is not supported when"
+			      "FEAT_RME is implemented and FEAT_SEL2 is"
+			      "not enabled\n");
+			panic();
+		} else {
+			*attributes |= MT_SECURE;
+		}
+		break;
+	case 1U:
 		*attributes |= MT_NS;
+		break;
+	case 2U:
+		*attributes |= MT_ROOT;
+		break;
+	case 3U:
+		*attributes |= MT_REALM;
+		break;
+	default:
+		/* unreachable code */
+		assert(false);
+		break;
+	}
+#else /* !ENABLE_RME */
+	if (ns_bit == 1ULL) {
+		*attributes |= MT_NS;
+	} else {
+		*attributes |= MT_SECURE;
+	}
+#endif /* ENABLE_RME */
 
 	uint64_t xn_mask = xlat_arch_regime_get_xn_desc(ctx->xlat_regime);
 
@@ -568,7 +635,7 @@ int xlat_change_mem_attributes_ctx(const xlat_ctx_t *ctx, uintptr_t base_va,
 		base_va += PAGE_SIZE;
 	}
 
-	/* Ensure that the last descriptor writen is seen by the system. */
+	/* Ensure that the last descriptor written is seen by the system. */
 	dsbish();
 
 	return 0;

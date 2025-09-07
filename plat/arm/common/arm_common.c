@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2020, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2015-2024, ARM Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -12,6 +12,8 @@
 #include <arch_helpers.h>
 #include <common/debug.h>
 #include <common/romlib.h>
+#include <common/par.h>
+#include <lib/extensions/sysreg128.h>
 #include <lib/mmio.h>
 #include <lib/smccc.h>
 #include <lib/xlat_tables/xlat_tables_compat.h>
@@ -151,10 +153,10 @@ void arm_configure_sys_timer(void)
 	 */
 	mmio_write_32(ARM_SYS_TIMCTL_BASE + CNTCTLBASE_CNTFRQ, freq_val);
 
-#if defined(PLAT_juno) || defined(PLAT_n1sdp)
+#if defined(PLAT_juno) || defined(PLAT_n1sdp) || defined(PLAT_morello)
 	/*
 	 * Initialize CNTFRQ register in Non-secure CNTBase frame.
-	 * This is only required for Juno and N1SDP, because they do not
+	 * This is required for Juno, N1SDP and Morello because they do not
 	 * follow ARM ARM in that the value updated in CNTFRQ is not
 	 * reflected in CNTBASEN_CNTFRQ. Hence update the value manually.
 	 */
@@ -196,7 +198,8 @@ unsigned int plat_get_syscnt_freq2(void)
  */
 int plat_sdei_validate_entry_point(uintptr_t ep, unsigned int client_mode)
 {
-	uint64_t par, pa;
+	uint64_t pa;
+	sysreg_t par;
 	u_register_t scr_el3;
 
 	/* Doing Non-secure address translation requires SCR_EL3.NS set */
@@ -230,10 +233,54 @@ int plat_sdei_validate_entry_point(uintptr_t ep, unsigned int client_mode)
 		return -1;
 
 	/* Extract Physical Address from PAR */
-	pa = (par & (PAR_ADDR_MASK << PAR_ADDR_SHIFT));
+	pa = get_par_el1_pa(par);
 
 	/* Perform NS entry point validation on the physical address */
 	return arm_validate_ns_entrypoint(pa);
 }
 #endif
 
+const mmap_region_t *plat_get_addr_mmap(void)
+{
+	return plat_arm_mmap;
+}
+
+#if ENABLE_RME
+void arm_gpt_setup(void)
+{
+	/*
+	 * It is to be noted that any Arm platform that reuses arm_gpt_setup
+	 * must implement plat_arm_get_gpt_info within its platform code
+	 */
+	const arm_gpt_info_t *arm_gpt_info =
+		plat_arm_get_gpt_info();
+
+	if (arm_gpt_info == NULL) {
+		ERROR("arm_gpt_info not initialized!!\n");
+		panic();
+	}
+
+	/* Initialize entire protected space to GPT_GPI_ANY. */
+	if (gpt_init_l0_tables(arm_gpt_info->pps, arm_gpt_info->l0_base,
+		arm_gpt_info->l0_size) < 0) {
+		ERROR("gpt_init_l0_tables() failed!\n");
+		panic();
+	}
+
+	/* Carve out defined PAS ranges. */
+	if (gpt_init_pas_l1_tables(arm_gpt_info->pgs,
+				   arm_gpt_info->l1_base,
+				   arm_gpt_info->l1_size,
+				   arm_gpt_info->pas_region_base,
+				   arm_gpt_info->pas_region_count) < 0) {
+		ERROR("gpt_init_pas_l1_tables() failed!\n");
+		panic();
+	}
+
+	INFO("Enabling Granule Protection Checks\n");
+	if (gpt_enable() < 0) {
+		ERROR("gpt_enable() failed!\n");
+		panic();
+	}
+}
+#endif /* ENABLE_RME */

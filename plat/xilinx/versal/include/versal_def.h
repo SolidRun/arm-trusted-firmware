@@ -1,5 +1,7 @@
 /*
- * Copyright (c) 2018-2021, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2018-2022, Arm Limited and Contributors. All rights reserved.
+ * Copyright (c) 2019-2022, Xilinx, Inc. All rights reserved.
+ * Copyright (c) 2022-2024, Advanced Micro Devices, Inc. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -10,19 +12,36 @@
 #include <plat/arm/common/smccc_def.h>
 #include <plat/common/common_def.h>
 
+#define PLATFORM_MASK                  GENMASK(27U, 24U)
+#define PLATFORM_VERSION_MASK          GENMASK(31U, 28U)
+
+/* number of interrupt handlers. increase as required */
+#define MAX_INTR_EL3			2U
 /* List all consoles */
+#define VERSAL_CONSOLE_ID_none		0
 #define VERSAL_CONSOLE_ID_pl011	1
 #define VERSAL_CONSOLE_ID_pl011_0	1
 #define VERSAL_CONSOLE_ID_pl011_1	2
 #define VERSAL_CONSOLE_ID_dcc		3
+#define VERSAL_CONSOLE_ID_dtb		4
 
-#define VERSAL_CONSOLE_IS(con)	(VERSAL_CONSOLE_ID_ ## con == VERSAL_CONSOLE)
+#define CONSOLE_IS(con)	(VERSAL_CONSOLE_ID_ ## con == VERSAL_CONSOLE)
 
-/* List all supported platforms */
-#define VERSAL_PLATFORM_ID_versal_virt	1
-#define VERSAL_PLATFORM_ID_silicon	4
+/* Runtime console */
+#define RT_CONSOLE_ID_pl011	1
+#define RT_CONSOLE_ID_pl011_0	1
+#define RT_CONSOLE_ID_pl011_1	2
+#define RT_CONSOLE_ID_dcc	3
+#define RT_CONSOLE_ID_dtb	4
 
-#define VERSAL_PLATFORM_IS(con)	(VERSAL_PLATFORM_ID_ ## con == VERSAL_PLATFORM)
+#define RT_CONSOLE_IS(con)	(RT_CONSOLE_ID_ ## con == CONSOLE_RUNTIME)
+
+/* List of platforms */
+#define VERSAL_SILICON              U(0)
+#define VERSAL_SPP                  U(1)
+#define VERSAL_EMU                  U(2)
+#define VERSAL_QEMU                 U(3)
+#define VERSAL_COSIM                U(7)
 
 /* Firmware Image Package */
 #define VERSAL_PRIMARY_CPU	0
@@ -30,77 +49,74 @@
 /*******************************************************************************
  * memory map related constants
  ******************************************************************************/
-#define DEVICE0_BASE		0xFF000000
-#define DEVICE0_SIZE		0x00E00000
-#define DEVICE1_BASE		0xF9000000
-#define DEVICE1_SIZE		0x00800000
-
-/* CRL */
-#define VERSAL_CRL				0xFF5E0000
-#define VERSAL_CRL_TIMESTAMP_REF_CTRL		(VERSAL_CRL + 0x14C)
-#define VERSAL_CRL_RST_TIMESTAMP_OFFSET	(VERSAL_CRL + 0x348)
-
-#define VERSAL_CRL_APB_TIMESTAMP_REF_CTRL_CLKACT_BIT	(1 << 25)
-
-/* IOU SCNTRS */
-#define VERSAL_IOU_SCNTRS			 0xFF140000
-#define VERSAL_IOU_SCNTRS_COUNTER_CONTROL_REG	(VERSAL_IOU_SCNTRS + 0x0)
-#define VERSAL_IOU_SCNTRS_BASE_FREQ		(VERSAL_IOU_SCNTRS + 0x20)
-
-#define VERSAL_IOU_SCNTRS_CONTROL_EN	1
+#define DEVICE0_BASE		U(0xFF000000)
+#define DEVICE0_SIZE		U(0x00E00000)
+#define DEVICE1_BASE		U(0xF9000000)
+#define DEVICE1_SIZE		U(0x00800000)
 
 /*******************************************************************************
  * IRQ constants
  ******************************************************************************/
-#define VERSAL_IRQ_SEC_PHY_TIMER		29
+#define VERSAL_IRQ_SEC_PHY_TIMER		U(29)
+#define ARM_IRQ_SEC_PHY_TIMER	29
 
 /*******************************************************************************
  * CCI-400 related constants
  ******************************************************************************/
-#define PLAT_ARM_CCI_BASE		0xFD000000
+#define PLAT_ARM_CCI_BASE		U(0xFD000000)
+#define PLAT_ARM_CCI_SIZE		U(0x00100000)
 #define PLAT_ARM_CCI_CLUSTER0_SL_IFACE_IX	4
 #define PLAT_ARM_CCI_CLUSTER1_SL_IFACE_IX	5
 
 /*******************************************************************************
  * UART related constants
  ******************************************************************************/
-#define VERSAL_UART0_BASE		0xFF000000
-#define VERSAL_UART1_BASE		0xFF010000
+#define VERSAL_UART0_BASE		U(0xFF000000)
+#define VERSAL_UART1_BASE		U(0xFF010000)
 
-#if VERSAL_CONSOLE_IS(pl011) || VERSAL_CONSOLE_IS(dcc)
-# define VERSAL_UART_BASE	VERSAL_UART0_BASE
-#elif VERSAL_CONSOLE_IS(pl011_1)
-# define VERSAL_UART_BASE	VERSAL_UART1_BASE
+#if CONSOLE_IS(pl011) || CONSOLE_IS(dtb)
+# define UART_BASE	VERSAL_UART0_BASE
+# define UART_TYPE	CONSOLE_PL011
+#elif CONSOLE_IS(pl011_1)
+# define UART_BASE	VERSAL_UART1_BASE
+# define UART_TYPE	CONSOLE_PL011
+#elif CONSOLE_IS(dcc)
+# define UART_BASE	0x0
+# define UART_TYPE	CONSOLE_DCC
+#elif CONSOLE_IS(none)
+# define UART_TYPE	CONSOLE_NONE
 #else
 # error "invalid VERSAL_CONSOLE"
 #endif
 
-#define PLAT_VERSAL_CRASH_UART_BASE		VERSAL_UART_BASE
-#define PLAT_VERSAL_CRASH_UART_CLK_IN_HZ	VERSAL_UART_CLOCK
-#define VERSAL_CONSOLE_BAUDRATE			VERSAL_UART_BAUDRATE
+/* Runtime console */
+#if defined(CONSOLE_RUNTIME)
+#if RT_CONSOLE_IS(pl011) || RT_CONSOLE_IS(dtb)
+# define RT_UART_BASE VERSAL_UART0_BASE
+# define RT_UART_TYPE	CONSOLE_PL011
+#elif RT_CONSOLE_IS(pl011_1)
+# define RT_UART_BASE VERSAL_UART1_BASE
+# define RT_UART_TYPE	CONSOLE_PL011
+#elif RT_CONSOLE_IS(dcc)
+# define RT_UART_BASE	0x0
+# define RT_UART_TYPE	CONSOLE_DCC
+#else
+# error "invalid CONSOLE_RUNTIME"
+#endif
+#endif
 
 /*******************************************************************************
  * Platform related constants
  ******************************************************************************/
-#if VERSAL_PLATFORM_IS(versal_virt)
-# define PLATFORM_NAME		"Versal Virt"
-# define VERSAL_UART_CLOCK	25000000
-# define VERSAL_UART_BAUDRATE	115200
-# define VERSAL_CPU_CLOCK	2720000
-#elif VERSAL_PLATFORM_IS(silicon)
-# define PLATFORM_NAME		"Versal Silicon"
-# define VERSAL_UART_CLOCK	100000000
-# define VERSAL_UART_BAUDRATE	115200
-# define VERSAL_CPU_CLOCK	100000000
-#endif
+#define UART_BAUDRATE  115200
 
 /* Access control register defines */
 #define ACTLR_EL3_L2ACTLR_BIT	(1 << 6)
 #define ACTLR_EL3_CPUACTLR_BIT	(1 << 0)
 
 /* For cpu reset APU space here too 0xFE5F1000 CRF_APB*/
-#define CRF_BASE		0xFD1A0000
-#define CRF_SIZE		0x00600000
+#define CRF_BASE		U(0xFD1A0000)
+#define CRF_SIZE		U(0x00600000)
 
 /* CRF registers and bitfields */
 #define CRF_RST_APU	(CRF_BASE + 0X00000300)
@@ -108,37 +124,23 @@
 #define CRF_RST_APU_ACPU_RESET		(1 << 0)
 #define CRF_RST_APU_ACPU_PWRON_RESET	(1 << 10)
 
-#define FPD_MAINCCI_BASE	0xFD000000
-#define FPD_MAINCCI_SIZE	0x00100000
+/* IOU SCNTRS */
+#define IOU_SCNTRS_BASE	U(0xFF140000)
+#define IOU_SCNTRS_BASE_FREQ_OFFSET	U(0x20)
 
 /* APU registers and bitfields */
-#define FPD_APU_BASE		0xFD5C0000
-#define FPD_APU_CONFIG_0	(FPD_APU_BASE + 0x20)
-#define FPD_APU_RVBAR_L_0	(FPD_APU_BASE + 0x40)
-#define FPD_APU_RVBAR_H_0	(FPD_APU_BASE + 0x44)
-#define FPD_APU_PWRCTL		(FPD_APU_BASE + 0x90)
+#define FPD_APU_BASE		0xFD5C0000U
+#define FPD_APU_CONFIG_0	(FPD_APU_BASE + 0x20U)
+#define FPD_APU_RVBAR_L_0	(FPD_APU_BASE + 0x40U)
+#define FPD_APU_RVBAR_H_0	(FPD_APU_BASE + 0x44U)
+#define FPD_APU_PWRCTL		(FPD_APU_BASE + 0x90U)
 
-#define FPD_APU_CONFIG_0_VINITHI_SHIFT	8
-#define APU_0_PWRCTL_CPUPWRDWNREQ_MASK	1
-#define APU_1_PWRCTL_CPUPWRDWNREQ_MASK	2
+#define FPD_APU_CONFIG_0_VINITHI_SHIFT	8U
+#define APU_0_PWRCTL_CPUPWRDWNREQ_MASK	1U
+#define APU_1_PWRCTL_CPUPWRDWNREQ_MASK	2U
 
 /* PMC registers and bitfields */
-#define PMC_GLOBAL_BASE			0xF1110000
-#define PMC_GLOBAL_GLOB_GEN_STORAGE4	(PMC_GLOBAL_BASE + 0x40)
-
-/* IPI registers and bitfields */
-#define IPI0_REG_BASE		0xFF330000
-#define IPI0_TRIG_BIT		(1 << 2)
-#define PMC_IPI_TRIG_BIT	(1 << 1)
-#define IPI1_REG_BASE		0xFF340000
-#define IPI1_TRIG_BIT		(1 << 3)
-#define IPI2_REG_BASE		0xFF350000
-#define IPI2_TRIG_BIT		(1 << 4)
-#define IPI3_REG_BASE		0xFF360000
-#define IPI3_TRIG_BIT		(1 << 5)
-#define IPI4_REG_BASE		0xFF370000
-#define IPI4_TRIG_BIT		(1 << 5)
-#define IPI5_REG_BASE		0xFF380000
-#define IPI5_TRIG_BIT		(1 << 6)
+#define PMC_GLOBAL_BASE			0xF1110000U
+#define PMC_GLOBAL_GLOB_GEN_STORAGE4	(PMC_GLOBAL_BASE + 0x40U)
 
 #endif /* VERSAL_DEF_H */

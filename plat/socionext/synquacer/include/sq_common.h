@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2018-2022, ARM Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -39,12 +39,15 @@ void sq_gic_cpuif_enable(void);
 void sq_gic_cpuif_disable(void);
 void sq_gic_pcpu_init(void);
 
+int sq_io_setup(void);
+struct image_info *sq_get_image_info(unsigned int image_id);
 void sq_mmap_setup(uintptr_t total_base, size_t total_size,
 		   const struct mmap_region *mmap);
 
 /* SCMI API for power management by SCP */
 void sq_scmi_off(const struct psci_power_state *target_state);
 void sq_scmi_on(u_register_t mpidr);
+void __dead2 sq_scmi_sys_shutdown(void);
 void __dead2 sq_scmi_sys_reboot(void);
 void __dead2 sq_scmi_system_off(int state);
 /* SCMI API for vendor specific protocol */

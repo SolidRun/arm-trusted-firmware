@@ -1,13 +1,15 @@
 /*
- * Copyright (c) 2016-2019, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2016-2024, Arm Limited and Contributors. All rights reserved.
  * Copyright (c) 2020, NVIDIA Corporation. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
 #include <assert.h>
+#include <inttypes.h>
 #include <lib/xlat_tables/xlat_tables_v2.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <string.h>
 
 #include <arch_helpers.h>
@@ -116,8 +118,10 @@ static struct smc_args trusty_context_switch(uint32_t security_state, uint64_t r
 	 * when it's needed the PSCI caller has preserved FP context before
 	 * going here.
 	 */
-	if (r0 != SMC_FC_CPU_SUSPEND && r0 != SMC_FC_CPU_RESUME)
-		fpregs_context_save(get_fpregs_ctx(cm_get_context(security_state)));
+	if (r0 != SMC_FC_CPU_SUSPEND && r0 != SMC_FC_CPU_RESUME) {
+		simd_ctx_save(security_state, false);
+	}
+
 	cm_el1_sysregs_context_save(security_state);
 
 	ctx->saved_security_state = security_state;
@@ -126,8 +130,9 @@ static struct smc_args trusty_context_switch(uint32_t security_state, uint64_t r
 	assert(ctx->saved_security_state == ((security_state == 0U) ? 1U : 0U));
 
 	cm_el1_sysregs_context_restore(security_state);
-	if (r0 != SMC_FC_CPU_SUSPEND && r0 != SMC_FC_CPU_RESUME)
-		fpregs_context_restore(get_fpregs_ctx(cm_get_context(security_state)));
+	if (r0 != SMC_FC_CPU_SUSPEND && r0 != SMC_FC_CPU_RESUME) {
+		simd_ctx_restore(security_state);
+	}
 
 	cm_set_next_eret_context(security_state);
 
@@ -158,9 +163,9 @@ static uint64_t trusty_fiq_handler(uint32_t id,
 	(void)memcpy(&ctx->fiq_gpregs, get_gpregs_ctx(handle), sizeof(ctx->fiq_gpregs));
 	ctx->fiq_pc = SMC_GET_EL3(handle, CTX_ELR_EL3);
 	ctx->fiq_cpsr = SMC_GET_EL3(handle, CTX_SPSR_EL3);
-	ctx->fiq_sp_el1 = read_ctx_reg(get_el1_sysregs_ctx(handle), CTX_SP_EL1);
+	ctx->fiq_sp_el1 = read_el1_ctx_common(get_el1_sysregs_ctx(handle), sp_el1);
 
-	write_ctx_reg(get_el1_sysregs_ctx(handle), CTX_SP_EL1, ctx->fiq_handler_sp);
+	write_el1_ctx_common(get_el1_sysregs_ctx(handle), sp_el1, ctx->fiq_handler_sp);
 	cm_set_elr_spsr_el3(NON_SECURE, ctx->fiq_handler_pc, (uint32_t)ctx->fiq_handler_cpsr);
 
 	SMC_RET0(handle);
@@ -172,7 +177,7 @@ static uint64_t trusty_set_fiq_handler(void *handle, uint64_t cpu,
 	struct trusty_cpu_ctx *ctx;
 
 	if (cpu >= (uint64_t)PLATFORM_CORE_COUNT) {
-		ERROR("%s: cpu %lld >= %d\n", __func__, cpu, PLATFORM_CORE_COUNT);
+		ERROR("%s: cpu %" PRId64 " >= %d\n", __func__, cpu, PLATFORM_CORE_COUNT);
 		return (uint64_t)SM_ERR_INVALID_PARAMETERS;
 	}
 
@@ -204,7 +209,7 @@ static uint64_t trusty_fiq_exit(void *handle, uint64_t x1, uint64_t x2, uint64_t
 
 	ret = trusty_context_switch(NON_SECURE, SMC_FC_FIQ_EXIT, 0, 0, 0);
 	if (ret.r0 != 1U) {
-		INFO("%s(%p) SMC_FC_FIQ_EXIT returned unexpected value, %lld\n",
+		INFO("%s(%p) SMC_FC_FIQ_EXIT returned unexpected value, %" PRId64 "\n",
 		       __func__, handle, ret.r0);
 	}
 
@@ -219,7 +224,7 @@ static uint64_t trusty_fiq_exit(void *handle, uint64_t x1, uint64_t x2, uint64_t
 	 */
 	(void)memcpy(get_gpregs_ctx(handle), &ctx->fiq_gpregs, sizeof(ctx->fiq_gpregs));
 	ctx->fiq_handler_active = 0;
-	write_ctx_reg(get_el1_sysregs_ctx(handle), CTX_SP_EL1, ctx->fiq_sp_el1);
+	write_el1_ctx_common(get_el1_sysregs_ctx(handle), sp_el1, ctx->fiq_sp_el1);
 	cm_set_elr_spsr_el3(NON_SECURE, ctx->fiq_pc, (uint32_t)ctx->fiq_cpsr);
 
 	SMC_RET0(handle);
@@ -318,7 +323,7 @@ static int32_t trusty_init(void)
 	ep_info = bl31_plat_get_next_image_ep_info(SECURE);
 	assert(ep_info != NULL);
 
-	fpregs_context_save(get_fpregs_ctx(cm_get_context(NON_SECURE)));
+	simd_ctx_save(NON_SECURE, false);
 	cm_el1_sysregs_context_save(NON_SECURE);
 
 	cm_set_context(&ctx->cpu_ctx, SECURE);
@@ -335,7 +340,7 @@ static int32_t trusty_init(void)
 	}
 
 	cm_el1_sysregs_context_restore(SECURE);
-	fpregs_context_restore(get_fpregs_ctx(cm_get_context(SECURE)));
+	simd_ctx_restore(SECURE);
 	cm_set_next_eret_context(SECURE);
 
 	ctx->saved_security_state = ~0U; /* initial saved state is invalid */
@@ -344,7 +349,7 @@ static int32_t trusty_init(void)
 	(void)trusty_context_switch_helper(&ctx->saved_sp, &zero_args);
 
 	cm_el1_sysregs_context_restore(NON_SECURE);
-	fpregs_context_restore(get_fpregs_ctx(cm_get_context(NON_SECURE)));
+	simd_ctx_restore(NON_SECURE);
 	cm_set_next_eret_context(NON_SECURE);
 
 	return 1;
@@ -356,7 +361,7 @@ static void trusty_cpu_suspend(uint32_t off)
 
 	ret = trusty_context_switch(NON_SECURE, SMC_FC_CPU_SUSPEND, off, 0, 0);
 	if (ret.r0 != 0U) {
-		INFO("%s: cpu %d, SMC_FC_CPU_SUSPEND returned unexpected value, %lld\n",
+		INFO("%s: cpu %d, SMC_FC_CPU_SUSPEND returned unexpected value, %" PRId64 "\n",
 		     __func__, plat_my_core_pos(), ret.r0);
 	}
 }
@@ -367,7 +372,7 @@ static void trusty_cpu_resume(uint32_t on)
 
 	ret = trusty_context_switch(NON_SECURE, SMC_FC_CPU_RESUME, on, 0, 0);
 	if (ret.r0 != 0U) {
-		INFO("%s: cpu %d, SMC_FC_CPU_RESUME returned unexpected value, %lld\n",
+		INFO("%s: cpu %d, SMC_FC_CPU_RESUME returned unexpected value, %" PRId64 "\n",
 		     __func__, plat_my_core_pos(), ret.r0);
 	}
 }

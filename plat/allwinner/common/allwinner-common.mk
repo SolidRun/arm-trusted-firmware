@@ -27,6 +27,7 @@ BL31_SOURCES		+=	drivers/allwinner/axp/common.c		\
 				plat/common/plat_gicv2.c		\
 				plat/common/plat_psci_common.c		\
 				${AW_PLAT}/common/sunxi_bl31_setup.c	\
+				${AW_PLAT}/${PLAT}/sunxi_idle_states.c	\
 				${AW_PLAT}/common/sunxi_pm.c		\
 				${AW_PLAT}/${PLAT}/sunxi_power.c	\
 				${AW_PLAT}/common/sunxi_security.c	\
@@ -61,11 +62,32 @@ BL31_SOURCES		+=	drivers/allwinner/sunxi_msgbox.c	\
 				${AW_PLAT}/common/sunxi_scpi_pm.c
 endif
 
+SUNXI_SETUP_REGULATORS	?=	1
+$(eval $(call assert_boolean,SUNXI_SETUP_REGULATORS))
+$(eval $(call add_define,SUNXI_SETUP_REGULATORS))
+
+SUNXI_BL31_IN_DRAM	?=	0
+$(eval $(call assert_boolean,SUNXI_BL31_IN_DRAM))
+
+ifeq (${SUNXI_BL31_IN_DRAM},1)
+SUNXI_AMEND_DTB		:=	1
+$(eval $(call add_define,SUNXI_BL31_IN_DRAM))
+endif
+
+SUNXI_AMEND_DTB		?=	0
+$(eval $(call assert_boolean,SUNXI_AMEND_DTB))
+$(eval $(call add_define,SUNXI_AMEND_DTB))
+
+ifeq (${SUNXI_AMEND_DTB},1)
+BL31_SOURCES		+=	common/fdt_fixup.c			\
+				${AW_PLAT}/common/sunxi_prepare_dtb.c
+endif
+
 # The bootloader is guaranteed to only run on CPU 0 by the boot ROM.
 COLD_BOOT_SINGLE_CPU		:=	1
 
 # Do not enable SPE (not supported on ARM v8.0).
-ENABLE_SPE_FOR_LOWER_ELS	:=	0
+ENABLE_SPE_FOR_NS		:=	0
 
 # Do not enable SVE (not supported on ARM v8.0).
 ENABLE_SVE_FOR_NS		:=	0

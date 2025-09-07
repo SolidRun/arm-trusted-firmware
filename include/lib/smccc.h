@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2020, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2016-2024, Arm Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -20,7 +20,7 @@
 						SMCCC_VERSION_MINOR_SHIFT))
 
 #define SMCCC_MAJOR_VERSION U(1)
-#define SMCCC_MINOR_VERSION U(2)
+#define SMCCC_MINOR_VERSION U(5)
 
 /*******************************************************************************
  * Bit definitions inside the function id as per the SMC calling convention
@@ -37,9 +37,19 @@
 #define FUNCID_OEN_MASK			U(0x3f)
 #define FUNCID_OEN_WIDTH		U(6)
 
+#define FUNCID_FC_RESERVED_SHIFT	U(17)
+#define FUNCID_FC_RESERVED_MASK		U(0x7f)
+#define FUNCID_FC_RESERVED_WIDTH	U(7)
+
+#define FUNCID_SVE_HINT_SHIFT		U(16)
+#define FUNCID_SVE_HINT_MASK		U(1)
+#define FUNCID_SVE_HINT_WIDTH		U(1)
+
 #define FUNCID_NUM_SHIFT		U(0)
 #define FUNCID_NUM_MASK			U(0xffff)
 #define FUNCID_NUM_WIDTH		U(16)
+
+#define FUNCID_MASK			U(0xffffffff)
 
 #define GET_SMC_NUM(id)			(((id) >> FUNCID_NUM_SHIFT) & \
 					 FUNCID_NUM_MASK)
@@ -49,6 +59,23 @@
 					 FUNCID_CC_MASK)
 #define GET_SMC_OEN(id)			(((id) >> FUNCID_OEN_SHIFT) & \
 					 FUNCID_OEN_MASK)
+
+/*******************************************************************************
+ * SMCCC_ARCH_SOC_ID SoC version & revision bit definition
+ ******************************************************************************/
+#define SOC_ID_JEP_106_BANK_IDX_MASK	GENMASK_32(30, 24)
+#define SOC_ID_JEP_106_BANK_IDX_SHIFT	U(24)
+#define SOC_ID_JEP_106_ID_CODE_MASK	GENMASK_32(23, 16)
+#define SOC_ID_JEP_106_ID_CODE_SHIFT	U(16)
+#define SOC_ID_IMPL_DEF_MASK		GENMASK_32(15, 0)
+#define SOC_ID_IMPL_DEF_SHIFT		U(0)
+#define SOC_ID_SET_JEP_106(bkid, mfid)	((((bkid) << SOC_ID_JEP_106_BANK_IDX_SHIFT) & \
+					  SOC_ID_JEP_106_BANK_IDX_MASK) | \
+					 (((mfid) << SOC_ID_JEP_106_ID_CODE_SHIFT) & \
+					  SOC_ID_JEP_106_ID_CODE_MASK))
+
+#define SOC_ID_REV_MASK			GENMASK_32(30, 0)
+#define SOC_ID_REV_SHIFT		U(0)
 
 /*******************************************************************************
  * Owning entity number definitions inside the function id as per the SMC
@@ -68,6 +95,8 @@
 #define OEN_STD_HYP_END			U(5)
 #define OEN_VEN_HYP_START		U(6)	/* Vendor Hypervisor Service calls */
 #define OEN_VEN_HYP_END			U(6)
+#define OEN_VEN_EL3_START		U(7)	/* Vendor Specific EL3 Monitor Calls */
+#define OEN_VEN_EL3_END			U(7)
 #define OEN_TAP_START			U(48)	/* Trusted Applications */
 #define OEN_TAP_END			U(49)
 #define OEN_TOS_START			U(50)	/* Trusted OS */
@@ -84,6 +113,8 @@
 #define SMC_OK				ULL(0)
 #define SMC_UNK				-1
 #define SMC_PREEMPTED			-2	/* Not defined by the SMCCC */
+#define SMC_DENIED			-3	/* Not defined by the SMCCC */
+#define SMC_INVALID_PARAM		-4	/* Not defined by the SMCCC */
 
 /* Return codes for Arm Architecture Service SMC calls */
 #define SMC_ARCH_CALL_SUCCESS		0
@@ -91,9 +122,30 @@
 #define SMC_ARCH_CALL_NOT_REQUIRED	-2
 #define SMC_ARCH_CALL_INVAL_PARAM	-3
 
-/* Various flags passed to SMC handlers */
+/*
+ * Various flags passed to SMC handlers
+ *
+ * Bit 5 and bit 0 of the flag are used to
+ * determine the source security state as
+ * follows:
+ * ---------------------------------
+ *  Bit 5 | Bit 0 | Security state
+ * ---------------------------------
+ *   0        0      SMC_FROM_SECURE
+ *   0        1      SMC_FROM_NON_SECURE
+ *   1        1      SMC_FROM_REALM
+ *
+ * Bit 16 of flags records the caller's SMC
+ * SVE hint bit according to SMCCCv1.3.
+ * It can be consumed by dispatchers using
+ * is_sve_hint_set macro.
+ *
+ */
+
 #define SMC_FROM_SECURE		(U(0) << 0)
 #define SMC_FROM_NON_SECURE	(U(1) << 0)
+#define SMC_FROM_REALM		U(0x21)
+#define SMC_FROM_MASK		U(0x21)
 
 #ifndef __ASSEMBLER__
 
@@ -101,8 +153,21 @@
 
 #include <lib/cassert.h>
 
+#if ENABLE_RME
+#define is_caller_non_secure(_f)	(((_f) & SMC_FROM_MASK) \
+					  == SMC_FROM_NON_SECURE)
+#define is_caller_secure(_f)		(((_f) & SMC_FROM_MASK) \
+					  == SMC_FROM_SECURE)
+#define is_caller_realm(_f)		(((_f) & SMC_FROM_MASK) \
+					  == SMC_FROM_REALM)
+#define caller_sec_state(_f)		((_f) & SMC_FROM_MASK)
+#else /* ENABLE_RME */
 #define is_caller_non_secure(_f)	(((_f) & SMC_FROM_NON_SECURE) != U(0))
 #define is_caller_secure(_f)		(!is_caller_non_secure(_f))
+#endif /* ENABLE_RME */
+
+#define is_sve_hint_set(_f)		(((_f) & (FUNCID_SVE_HINT_MASK \
+						<< FUNCID_SVE_HINT_SHIFT)) != U(0))
 
 /* The macro below is used to identify a Standard Service SMC call */
 #define is_std_svc_call(_fid)		(GET_SMC_OEN(_fid) == OEN_STD_START)

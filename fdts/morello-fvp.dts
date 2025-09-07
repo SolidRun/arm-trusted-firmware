@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020, Arm Limited. All rights reserved.
+ * Copyright (c) 2020-2023, Arm Limited. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -8,6 +8,7 @@
 #include "morello.dtsi"
 
 / {
+	model = "Arm Morello Fixed Virtual Platform";
 
 	chosen {
 		stdout-path = "serial0:115200n8";
@@ -24,51 +25,96 @@
 		};
 	};
 
+	/*
+	 * The timings below are just to demonstrate working cpuidle.
+	 * These values may be inaccurate.
+	 */
+	idle-states {
+		entry-method = "psci";
+
+		cluster_sleep: cluster-sleep {
+			compatible = "arm,idle-state";
+			arm,psci-suspend-param = <0x40000022>;
+			local-timer-stop;
+			entry-latency-us = <500>;
+			exit-latency-us = <1000>;
+			min-residency-us = <2500>;
+		};
+
+		cpu_sleep: cpu-sleep {
+			compatible = "arm,idle-state";
+			arm,psci-suspend-param = <0x40000002>;
+			local-timer-stop;
+			entry-latency-us = <150>;
+			exit-latency-us = <300>;
+			min-residency-us = <200>;
+		};
+	};
+
 	cpus {
 		#address-cells = <2>;
 		#size-cells = <0>;
-		cpu0@0 {
+
+		cpu-map {
+			cluster0 {
+				core0 {
+					cpu = <&CPU0>;
+				};
+				core1 {
+					cpu = <&CPU1>;
+				};
+			};
+			cluster1 {
+				core0 {
+					cpu = <&CPU2>;
+				};
+				core1 {
+					cpu = <&CPU3>;
+				};
+			};
+		};
+		CPU0: cpu0@0 {
 			compatible = "arm,armv8";
 			reg = <0x0 0x0>;
 			device_type = "cpu";
 			enable-method = "psci";
 			clocks = <&scmi_dvfs 0>;
+			cpu-idle-states = <&cpu_sleep &cluster_sleep>;
 		};
-		cpu1@100 {
+		CPU1: cpu1@100 {
 			compatible = "arm,armv8";
 			reg = <0x0 0x100>;
 			device_type = "cpu";
 			enable-method = "psci";
 			clocks = <&scmi_dvfs 0>;
+			cpu-idle-states = <&cpu_sleep &cluster_sleep>;
 		};
-		cpu2@10000 {
+		CPU2: cpu2@10000 {
 			compatible = "arm,armv8";
 			reg = <0x0 0x10000>;
 			device_type = "cpu";
 			enable-method = "psci";
-			clocks = <&scmi_dvfs 0>;
+			clocks = <&scmi_dvfs 1>;
+			cpu-idle-states = <&cpu_sleep &cluster_sleep>;
 		};
-		cpu3@10100 {
+		CPU3: cpu3@10100 {
 			compatible = "arm,armv8";
 			reg = <0x0 0x10100>;
 			device_type = "cpu";
 			enable-method = "psci";
-			clocks = <&scmi_dvfs 0>;
+			clocks = <&scmi_dvfs 1>;
+			cpu-idle-states = <&cpu_sleep &cluster_sleep>;
 		};
 	};
 
 	/* The first bank of memory, memory map is actually provided by UEFI. */
 	memory@80000000 {
-		#address-cells = <2>;
-		#size-cells = <2>;
 		device_type = "memory";
 		/* [0x80000000-0xffffffff] */
 		reg = <0x00000000 0x80000000 0x0 0x80000000>;
 	};
 
 	memory@8080000000 {
-		#address-cells = <2>;
-		#size-cells = <2>;
 		device_type = "memory";
 		/* [0x8080000000-0x83ffffffff] */
 		reg = <0x00000080 0x80000000 0x1 0x80000000>;
@@ -124,8 +170,8 @@
 		scmi {
 			compatible = "arm,scmi";
 			mbox-names = "tx", "rx";
-			mboxes = <&mailbox 1 0 &mailbox 1 1>;
-			shmem = <&cpu_scp_hpri0 &cpu_scp_hpri1>;
+			mboxes = <&mailbox 1 0>, <&mailbox 1 1>;
+			shmem = <&cpu_scp_hpri0>, <&cpu_scp_hpri1>;
 			#address-cells = <1>;
 			#size-cells = <0>;
 

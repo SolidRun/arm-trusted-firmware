@@ -22,7 +22,7 @@ struct scmi_msg_channel;
  *
  * @shm_addr: Address of the shared memory for the SCMI channel
  * @shm_size: Byte size of the shared memory for the SCMI channel
- * @busy: True when channel is busy, flase when channel is free
+ * @busy: True when channel is busy, false when channel is free
  * @agent_name: Agent name, SCMI protocol exposes 16 bytes max, or NULL
  */
 struct scmi_msg_channel {
@@ -113,10 +113,12 @@ const char *plat_scmi_clock_get_name(unsigned int agent_id,
  * @scmi_id: SCMI clock ID
  * @rates: If NULL, function returns, else output rates array
  * @nb_elts: Array size of @rates.
+ * @start_idx: Start index of rates array
  * Return an SCMI compliant error code
  */
 int32_t plat_scmi_clock_rates_array(unsigned int agent_id, unsigned int scmi_id,
-				    unsigned long *rates, size_t *nb_elts);
+				    unsigned long *rates, size_t *nb_elts,
+				    uint32_t start_idx);
 
 /*
  * Get clock possible rate as range with regular steps in Hertz

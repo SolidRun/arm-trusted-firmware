@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2015-2018, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2015-2023, Arm Limited and Contributors. All rights reserved.
+ * Portions copyright (c) 2021-2022, ProvenRun S.A.S. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -34,6 +35,8 @@
 #pragma weak plat_ic_set_interrupt_priority
 #pragma weak plat_ic_set_interrupt_type
 #pragma weak plat_ic_raise_el3_sgi
+#pragma weak plat_ic_raise_ns_sgi
+#pragma weak plat_ic_raise_s_el1_sgi
 #pragma weak plat_ic_set_spi_routing
 
 /*
@@ -45,8 +48,9 @@ uint32_t plat_ic_get_pending_interrupt_id(void)
 	unsigned int id;
 
 	id = gicv2_get_pending_interrupt_id();
-	if (id == GIC_SPURIOUS_INTERRUPT)
-		return INTR_ID_UNAVAILABLE;
+	if (id == GIC_SPURIOUS_INTERRUPT) {
+		id = INTR_ID_UNAVAILABLE;
+	}
 
 	return id;
 }
@@ -65,22 +69,27 @@ uint32_t plat_ic_get_pending_interrupt_id(void)
 uint32_t plat_ic_get_pending_interrupt_type(void)
 {
 	unsigned int id;
+	uint32_t interrupt_type;
 
 	id = gicv2_get_pending_interrupt_type();
 
 	/* Assume that all secure interrupts are S-EL1 interrupts */
 	if (id < PENDING_G1_INTID) {
 #if GICV2_G0_FOR_EL3
-		return INTR_TYPE_EL3;
+		interrupt_type = INTR_TYPE_EL3;
 #else
-		return INTR_TYPE_S_EL1;
+		interrupt_type = INTR_TYPE_S_EL1;
 #endif
+	} else {
+
+		if (id == GIC_SPURIOUS_INTERRUPT) {
+			interrupt_type = INTR_TYPE_INVAL;
+		} else {
+			interrupt_type = INTR_TYPE_NS;
+		}
 	}
 
-	if (id == GIC_SPURIOUS_INTERRUPT)
-		return INTR_TYPE_INVAL;
-
-	return INTR_TYPE_NS;
+	return interrupt_type;
 }
 
 /*
@@ -139,8 +148,9 @@ uint32_t plat_interrupt_type_to_line(uint32_t type,
 	assert(sec_state_is_valid(security_state));
 
 	/* Non-secure interrupts are signaled on the IRQ line always */
-	if (type == INTR_TYPE_NS)
+	if (type == INTR_TYPE_NS) {
 		return __builtin_ctz(SCR_IRQ_BIT);
+	}
 
 	/*
 	 * Secure interrupts are signaled using the IRQ line if the FIQ is
@@ -190,9 +200,9 @@ void plat_ic_set_interrupt_priority(unsigned int id, unsigned int priority)
 	gicv2_set_interrupt_priority(id, priority);
 }
 
-int plat_ic_has_interrupt_type(unsigned int type)
+bool plat_ic_has_interrupt_type(unsigned int type)
 {
-	int has_interrupt_type = 0;
+	bool has_interrupt_type = false;
 
 	switch (type) {
 #if GICV2_G0_FOR_EL3
@@ -201,7 +211,7 @@ int plat_ic_has_interrupt_type(unsigned int type)
 	case INTR_TYPE_S_EL1:
 #endif
 	case INTR_TYPE_NS:
-		has_interrupt_type = 1;
+		has_interrupt_type = true;
 		break;
 	default:
 		/* Do nothing in default case */
@@ -213,7 +223,7 @@ int plat_ic_has_interrupt_type(unsigned int type)
 
 void plat_ic_set_interrupt_type(unsigned int id, unsigned int type)
 {
-	unsigned int gicv2_type = 0U;
+	unsigned int gicv2_group = 0U;
 
 	/* Map canonical interrupt type to GICv2 type */
 	switch (type) {
@@ -222,17 +232,17 @@ void plat_ic_set_interrupt_type(unsigned int id, unsigned int type)
 #else
 	case INTR_TYPE_S_EL1:
 #endif
-		gicv2_type = GICV2_INTR_GROUP0;
+		gicv2_group = GICV2_INTR_GROUP0;
 		break;
 	case INTR_TYPE_NS:
-		gicv2_type = GICV2_INTR_GROUP1;
+		gicv2_group = GICV2_INTR_GROUP1;
 		break;
 	default:
-		assert(0); /* Unreachable */
+		assert(false); /* Unreachable */
 		break;
 	}
 
-	gicv2_set_interrupt_type(id, gicv2_type);
+	gicv2_set_interrupt_group(id, gicv2_group);
 }
 
 void plat_ic_raise_el3_sgi(int sgi_num, u_register_t target)
@@ -247,9 +257,41 @@ void plat_ic_raise_el3_sgi(int sgi_num, u_register_t target)
 	/* Verify that this is a secure SGI */
 	assert(plat_ic_get_interrupt_type(sgi_num) == INTR_TYPE_EL3);
 
-	gicv2_raise_sgi(sgi_num, id);
+	gicv2_raise_sgi(sgi_num, false, id);
 #else
 	assert(false);
+#endif
+}
+
+void plat_ic_raise_ns_sgi(int sgi_num, u_register_t target)
+{
+	int id;
+
+	/* Target must be a valid MPIDR in the system */
+	id = plat_core_pos_by_mpidr(target);
+	assert(id >= 0);
+
+	/* Verify that this is a non-secure SGI */
+	assert(plat_ic_get_interrupt_type(sgi_num) == INTR_TYPE_NS);
+
+	gicv2_raise_sgi(sgi_num, true, id);
+}
+
+void plat_ic_raise_s_el1_sgi(int sgi_num, u_register_t target)
+{
+#if GICV2_G0_FOR_EL3
+	assert(false);
+#else
+	int id;
+
+	/* Target must be a valid MPIDR in the system */
+	id = plat_core_pos_by_mpidr(target);
+	assert(id >= 0);
+
+	/* Verify that this is a secure EL1 SGI */
+	assert(plat_ic_get_interrupt_type(sgi_num) == INTR_TYPE_S_EL1);
+
+	gicv2_raise_sgi(sgi_num, false, id);
 #endif
 }
 
@@ -294,8 +336,9 @@ unsigned int plat_ic_get_interrupt_id(unsigned int raw)
 {
 	unsigned int id = (raw & INT_ID_MASK);
 
-	if (id == GIC_SPURIOUS_INTERRUPT)
+	if (id == GIC_SPURIOUS_INTERRUPT) {
 		id = INTR_ID_UNAVAILABLE;
+	}
 
 	return id;
 }

@@ -97,7 +97,7 @@ void emi_mpu_init(void)
 
 	/* PCI-e protect address(64MB) */
 	region_info.start = 0xC0000000ULL;
-	region_info.end = 0xC3FF0000ULL;
+	region_info.end = 0xC3FFFFFFULL;
 	region_info.region = 1;
 	SET_ACCESS_PERMISSION(region_info.apc, 1,
 			      FORBIDDEN, FORBIDDEN, FORBIDDEN, FORBIDDEN,
@@ -108,7 +108,7 @@ void emi_mpu_init(void)
 
 	/* SCP protect address */
 	region_info.start = 0x50000000ULL;
-	region_info.end = 0x513F0000ULL;
+	region_info.end = 0x513FFFFFULL;
 	region_info.region = 2;
 	SET_ACCESS_PERMISSION(region_info.apc, 1,
 			      FORBIDDEN, FORBIDDEN, FORBIDDEN, FORBIDDEN,
@@ -119,7 +119,7 @@ void emi_mpu_init(void)
 
 	/* Forbidden All */
 	region_info.start = 0x40000000ULL;	/* dram base addr */
-	region_info.end = 0x1FFFF0000ULL;
+	region_info.end = 0x1FFFFFFFFULL;
 	region_info.region = 3;
 	SET_ACCESS_PERMISSION(region_info.apc, 1,
 			      FORBIDDEN, FORBIDDEN, FORBIDDEN, FORBIDDEN,
