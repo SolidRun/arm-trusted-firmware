@@ -22,6 +22,8 @@
 static console_t rzv2n_bl31_console;
 static bl2_to_bl31_params_mem_t from_bl2;
 
+static void board_gpv_drp_setting(void);
+
 #ifdef PLAT_EXTRA_LD_SCRIPT
 IMPORT_SYM(uintptr_t, __BL31_PMUSRAM_START__, BL31_PMUSRAM_START);
 IMPORT_SYM(uintptr_t, __BL31_PMUSRAM_END__, BL31_PMUSRAM_END);
@@ -120,6 +122,8 @@ void bl31_platform_setup(void)
 	plat_gic_init();
 
 	pwrc_setup();
+
+    board_gpv_drp_setting();
 }
 
 entry_point_info_t *bl31_plat_get_next_image_ep_info(uint32_t type)
@@ -133,4 +137,81 @@ entry_point_info_t *bl31_plat_get_next_image_ep_info(uint32_t type)
 		return next_image_info;
 	else
 		return NULL;
+}
+
+static void board_gpv_drp_setting(void)
+{
+//MAC_M*0
+	(*(volatile uint32_t *)(0x1904410C)) = 0x00000063;
+	(*(volatile uint32_t *)(0x19044110)) = 0x20002000;
+	(*(volatile uint32_t *)(0x19044118)) = 0x00000000;
+	(*(volatile uint32_t *)(0x1904411C)) = 0x00000001;
+	(*(volatile uint32_t *)(0x19044120)) = 0x02000000;   // test point
+	(*(volatile uint32_t *)(0x19044124)) = 0x00000000;
+	(*(volatile uint32_t *)(0x19044128)) = 0x00000001;
+	(*(volatile uint32_t *)(0x1904412C)) = 0x02000000;   // test point
+
+//MAC_M*1
+	(*(volatile uint32_t *)(0x1904510C)) = 0x00000063;
+	(*(volatile uint32_t *)(0x19045110)) = 0x20002000;
+	(*(volatile uint32_t *)(0x19045118)) = 0x00000000;
+	(*(volatile uint32_t *)(0x1904511C)) = 0x00000001;
+	(*(volatile uint32_t *)(0x19045120)) = 0x10000000;
+	(*(volatile uint32_t *)(0x19045124)) = 0x00000000;
+	(*(volatile uint32_t *)(0x19045128)) = 0x00000001;
+	(*(volatile uint32_t *)(0x1904512C)) = 0x10000000;
+
+//MACWT_M*0
+	(*(volatile uint32_t *)(0x1904610C)) = 0x00000063;
+	(*(volatile uint32_t *)(0x19046110)) = 0x20002000;
+	(*(volatile uint32_t *)(0x19046118)) = 0x00000000;
+	(*(volatile uint32_t *)(0x1904611C)) = 0x00000001;
+	(*(volatile uint32_t *)(0x19046120)) = 0x10000000;
+	(*(volatile uint32_t *)(0x19046124)) = 0x00000000;
+	(*(volatile uint32_t *)(0x19046128)) = 0x00000001;
+	(*(volatile uint32_t *)(0x1904612C)) = 0x10000000;
+
+//MACWT_M*01
+	(*(volatile uint32_t *)(0x1904710C)) = 0x00000063;
+	(*(volatile uint32_t *)(0x19047110)) = 0x20002000;
+	(*(volatile uint32_t *)(0x19047118)) = 0x00000000;
+	(*(volatile uint32_t *)(0x1904711C)) = 0x00000001;
+	(*(volatile uint32_t *)(0x19047120)) = 0x10000000;
+	(*(volatile uint32_t *)(0x19047124)) = 0x00000000;
+	(*(volatile uint32_t *)(0x19047128)) = 0x00000001;
+	(*(volatile uint32_t *)(0x1904712C)) = 0x10000000;
+
+//GPV ACPU
+	(*(volatile uint32_t *)(0x14a44124)) = 0x00000000;
+	(*(volatile uint32_t *)(0x14a44128)) = 0x00000001;
+	(*(volatile uint32_t *)(0x14a4412c)) = 0x11000000;
+	(*(volatile uint32_t *)(0x14a4410c)) = 0x00000002;
+
+//GPV_VIDEO1
+	(*(volatile uint32_t *)(0x1654210C)) = 0x00000018;
+	(*(volatile uint32_t *)(0x16542130)) = 0x000A000A;
+	(*(volatile uint32_t *)(0x16542134)) = 0x00000000;
+	(*(volatile uint32_t *)(0x16542138)) = 0x06040604;
+
+	(*(volatile uint32_t *)(0x1654310C)) = 0x00000018;
+	(*(volatile uint32_t *)(0x16543130)) = 0x00640064;
+	(*(volatile uint32_t *)(0x16543134)) = 0x00000202;
+	(*(volatile uint32_t *)(0x16543138)) = 0x05040504;
+
+	(*(volatile uint32_t *)(0x1654410C)) = 0x00000018;
+	(*(volatile uint32_t *)(0x16544130)) = 0x00640064;
+	(*(volatile uint32_t *)(0x16544134)) = 0x00000202;
+	(*(volatile uint32_t *)(0x16544138)) = 0x05040504;
+
+	(*(volatile uint32_t *)(0x1654510C)) = 0x00000018;
+	(*(volatile uint32_t *)(0x16545130)) = 0x00640064;
+	(*(volatile uint32_t *)(0x16545134)) = 0x00000202;
+	(*(volatile uint32_t *)(0x16545138)) = 0x05040504;
+
+//GPV_VIDEO0
+	(*(volatile uint32_t *)(0x1614a124)) = 0x00000000;
+	(*(volatile uint32_t *)(0x1614a128)) = 0x00000001;
+	(*(volatile uint32_t *)(0x1614a12c)) = 0x04f00000;
+	(*(volatile uint32_t *)(0x1614a10c)) = 0x00000002;
+	return;
 }
