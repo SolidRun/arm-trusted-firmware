@@ -13,9 +13,11 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <string.h>
+#include <lib/mmio.h>
 #include <common/debug.h>
 #include <riic.h>
 #include <ddr.h>
+#include "pfc_regs.h"
 
 #define SOM_EEPROM_ADDR		0x50
 #define SOM_EEPROM_SIZE		256		/* m24c02 */
@@ -31,6 +33,28 @@
  */
 #define SKU_DDR_OFFSET		10
 #define SKU_MIN_LEN		14
+
+/*
+ * Configure I2C8 pin mux (P20.6=SDA func1, P20.7=SCL func1).
+ *
+ * The platform pfc_setup() doesn't touch I2C8 unless ENABLE_PMIC_CONTROL
+ * is set, so the pins are still in reset state when we get here. Without
+ * this, riic_read() against the SoM EEPROM times out and BL2 stalls for
+ * several seconds before falling back to the 8GB default.
+ */
+static void sr_som_i2c8_pinmux(void)
+{
+	mmio_write_32(PFC_PWPR, mmio_read_32(PFC_PWPR) | PWPR_REGWE_A);
+
+	/* P20.6, P20.7 → multiplexed function */
+	mmio_write_8(PFC_PMC20, mmio_read_8(PFC_PMC20) | 0xC0);
+
+	/* P20.6 → func 1 (bits 24..27), P20.7 → func 1 (bits 28..31) */
+	mmio_write_32(PFC_PFC20,
+		      (mmio_read_32(PFC_PFC20) & 0x00FFFFFFU) | 0x11000000U);
+
+	mmio_write_32(PFC_PWPR, mmio_read_32(PFC_PWPR) & ~PWPR_REGWE_A);
+}
 
 static int eeprom_read(uint8_t offset, uint8_t *buf, size_t len)
 {
@@ -48,6 +72,7 @@ enum ddr_size board_get_ddr_size(void)
 	uint16_t totallen;
 	size_t off, pn_len = 0;
 
+	sr_som_i2c8_pinmux();
 	riic_setup();
 
 	if (eeprom_read(0, hdr, TLV_HDR_LEN) < 0)
