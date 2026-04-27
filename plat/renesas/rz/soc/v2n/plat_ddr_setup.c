@@ -32,6 +32,33 @@ enum ddr_size __attribute__((weak)) board_get_ddr_size(void)
 	return DDR_8GB;
 }
 
+static uint64_t plat_ddr_total_bytes;
+
+static uint64_t ddr_code_to_bytes(enum ddr_size code)
+{
+	switch (code) {
+	case DDR_4GB: return (uint64_t)4 << 30;
+	case DDR_3GB: return (uint64_t)3 << 30;
+	case DDR_2GB: return (uint64_t)2 << 30;
+	case DDR_1GB: return (uint64_t)1 << 30;
+	case DDR_8GB:
+	default:      return (uint64_t)8 << 30;
+	}
+}
+
+uint64_t plat_ddr_get_total_bytes(void)
+{
+	return plat_ddr_total_bytes;
+}
+
+static void plat_ddr_apply_size(void)
+{
+	enum ddr_size code = board_get_ddr_size();
+
+	plat_ddr_total_bytes = ddr_code_to_bytes(code);
+	ddr_select_params(code);
+}
+
 #if PLAT_SYSTEM_SUSPEND
 image_info_t ddr_config_info = {
 	.h.type = (uint8_t)PARAM_IMAGE_BINARY,
@@ -109,7 +136,7 @@ exit:
 void plat_ddr_setup(void)
 {
 	if (!sys_is_resume()) {
-		ddr_select_params(board_get_ddr_size());
+		plat_ddr_apply_size();
 		ddr_setup();
 
 		if (save_ddr_config(V2N_DDR_CONFIG_ID, &ddr_config_info) != 0) {
@@ -117,6 +144,7 @@ void plat_ddr_setup(void)
 			panic();
 		}
 	} else {
+		plat_ddr_apply_size();
 		INFO("Restoring DDR retention info.\n");
 		if (load_auth_image(V2N_DDR_CONFIG_ID, &ddr_config_info) != 0) {
 			ERROR("Failed to load DDR retention info.\n");
@@ -129,7 +157,7 @@ void plat_ddr_setup(void)
 #else
 void plat_ddr_setup(void)
 {
-	ddr_select_params(board_get_ddr_size());
+	plat_ddr_apply_size();
 	ddr_setup();
 }
 #endif /* PLAT_SYSTEM_SUSPEND */

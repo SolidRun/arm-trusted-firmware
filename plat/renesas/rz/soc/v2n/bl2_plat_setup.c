@@ -90,6 +90,18 @@ int bl2_plat_handle_post_image_load(unsigned int image_id)
 			sizeof(entry_point_info_t));
 		break;
 	case BL33_IMAGE_ID:
+		/*
+		 * Pass the detected DDR base/size to BL33 (U-Boot) via x2/x3.
+		 * U-Boot's save_boot_params (lowlevel_init_gen3.S) stashes
+		 * x0..x3 into rcar_atf_boot_args[], and dram_init() reads
+		 * arg2/arg3 to size gd->ram_base / gd->ram_size.
+		 *
+		 * The 128MB ATF reservation at 0x40000000 is excluded — BL33
+		 * sees the usable window starting at 0x48000000.
+		 */
+		bl_mem_params->ep_info.args.arg2 = RZV2N_DDR_BASE + RZV2N_DDR_RSV_SIZE;
+		bl_mem_params->ep_info.args.arg3 = plat_ddr_get_total_bytes() - RZV2N_DDR_RSV_SIZE;
+
 		memcpy(&params->bl33_ep_info, &bl_mem_params->ep_info,
 			sizeof(entry_point_info_t));
 		break;

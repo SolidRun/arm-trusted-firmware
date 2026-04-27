@@ -60,6 +60,7 @@
 #define RZV2N_DEVICE_SIZE			(0x20000000 - RZV2N_DEVICE_BASE)
 #define RZV2N_XSPI_SIZE				(RZV2N_PCIe_MIRROR_BASE - RZV2N_XSPI_MEMORY_MAP_BASE)
 #define RZV2N_DDR_SIZE				ULL(0x200000000)	/* 8GBytes */
+#define RZV2N_DDR_RSV_SIZE			ULL(0x08000000)		/* 128MB ATF reserve at DDR base */
 
 /************************
  * NV storage definitions

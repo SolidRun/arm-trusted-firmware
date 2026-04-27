@@ -31,4 +31,7 @@ void ddr_select_params(enum ddr_size code);
  */
 enum ddr_size board_get_ddr_size(void);
 
+/* Total DDR size in bytes, populated during plat_ddr_setup(). */
+uint64_t plat_ddr_get_total_bytes(void);
+
 #endif	/* __PLAT_DDR_H__ */
