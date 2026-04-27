@@ -13,4 +13,5 @@ DDR_PLL4	:=1600
 
 $(eval $(call add_define,DDR_PLL4))
 
-BL_COMMON_SOURCES	+=	plat/renesas/rz/board/v2n_sr_som/pwrc_board.c
+BL_COMMON_SOURCES	+=	plat/renesas/rz/board/v2n_sr_som/pwrc_board.c	\
+						plat/renesas/rz/board/v2n_sr_som/sr_som_ddr.c

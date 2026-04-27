@@ -6,6 +6,7 @@
 
 #include <stdint.h>
 #include "rz_soc_def.h"
+#include <ddr.h>
 
 const char ddr_version_str[] = "03.01";
 
@@ -31471,7 +31472,7 @@ const uint32_t param_phyinit_swizzle[][2] = {
 };
 
 #if PLAT_DDR_ECC
-const uint32_t param_setup_mc[][2] = {
+static const uint32_t param_setup_mc_8gb[][2] = {
 	{0x0000, 0x00000b00},
 	{0x0001, 0x00000000},
 	{0x0002, 0x00000000},
@@ -32250,7 +32251,7 @@ const uint32_t param_setup_mc[][2] = {
 	{0x0800, 0x00000100}
 };
 #else /* !PLAT_DDR_ECC */
-const uint32_t param_setup_mc[][2] = {
+static const uint32_t param_setup_mc_8gb[][2] = {
 	{0x0000, 0x00000b00},
 	{0x0001, 0x00000000},
 	{0x0002, 0x00000000},
@@ -33037,4 +33038,37 @@ const uint32_t param_phyinit_2d_dat1_size = ARRAY_SIZE(param_phyinit_2d_dat1);
 const uint32_t param_phyinit_1d_dat0_size = ARRAY_SIZE(param_phyinit_1d_dat0);
 const uint32_t param_phyinit_2d_dat0_size = ARRAY_SIZE(param_phyinit_2d_dat0);
 const uint32_t param_phyinit_swizzle_size = ARRAY_SIZE(param_phyinit_swizzle);
-const uint32_t param_setup_mc_size = ARRAY_SIZE(param_setup_mc);
+
+/*
+ * Memory-controller setup table is selected at runtime based on the SoM DDR
+ * size reported by the board layer (see board_get_ddr_size()).
+ *
+ * For now only the 8GB table contains real values; the smaller-density
+ * variants will be added once Renesas DDR config-tool output is available.
+ * Until then, every size code maps to the 8GB table — boards that aren't
+ * actually 8GB will train with the wrong ADDRMAP and won't boot.
+ *
+ * When real per-size tables land, replace the source array name in the
+ * matching switch case below.
+ */
+const uint32_t (*param_setup_mc)[2];
+uint32_t param_setup_mc_size;
+
+void ddr_select_params(enum ddr_size code)
+{
+	switch (code) {
+	case DDR_4GB:
+		/* TODO: replace with param_setup_mc_4gb when available */
+	case DDR_3GB:
+		/* TODO: replace with param_setup_mc_3gb when available */
+	case DDR_2GB:
+		/* TODO: replace with param_setup_mc_2gb when available */
+	case DDR_1GB:
+		/* TODO: replace with param_setup_mc_1gb when available */
+	case DDR_8GB:
+	default:
+		param_setup_mc = param_setup_mc_8gb;
+		param_setup_mc_size = ARRAY_SIZE(param_setup_mc_8gb);
+		break;
+	}
+}

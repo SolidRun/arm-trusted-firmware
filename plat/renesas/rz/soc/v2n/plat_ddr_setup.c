@@ -23,6 +23,15 @@
 
 uint32_t ddr_csr_table[RET_CSR_SIZE] __attribute__ ((aligned(8)));
 
+/*
+ * Default DDR size hook. Boards that can detect the population at runtime
+ * (e.g. v2n_sr_som via TLV EEPROM) override this.
+ */
+enum ddr_size __attribute__((weak)) board_get_ddr_size(void)
+{
+	return DDR_8GB;
+}
+
 #if PLAT_SYSTEM_SUSPEND
 image_info_t ddr_config_info = {
 	.h.type = (uint8_t)PARAM_IMAGE_BINARY,
@@ -100,6 +109,7 @@ exit:
 void plat_ddr_setup(void)
 {
 	if (!sys_is_resume()) {
+		ddr_select_params(board_get_ddr_size());
 		ddr_setup();
 
 		if (save_ddr_config(V2N_DDR_CONFIG_ID, &ddr_config_info) != 0) {
@@ -119,6 +129,7 @@ void plat_ddr_setup(void)
 #else
 void plat_ddr_setup(void)
 {
+	ddr_select_params(board_get_ddr_size());
 	ddr_setup();
 }
 #endif /* PLAT_SYSTEM_SUSPEND */
