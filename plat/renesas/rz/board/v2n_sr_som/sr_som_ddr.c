@@ -111,23 +111,23 @@ enum ddr_size board_get_ddr_size(void)
 	}
 
 	if (memcmp(&pn[SKU_DDR_OFFSET], "D08G", 4) == 0) {
-		INFO("RZ/V2N SoM: DDR = 8GB\n");
+		NOTICE("RZ/V2N SoM: DDR = 8GB\n");
 		return DDR_8GB;
 	}
 	if (memcmp(&pn[SKU_DDR_OFFSET], "D04G", 4) == 0) {
-		INFO("RZ/V2N SoM: DDR = 4GB\n");
+		NOTICE("RZ/V2N SoM: DDR = 4GB\n");
 		return DDR_4GB;
 	}
 	if (memcmp(&pn[SKU_DDR_OFFSET], "D03G", 4) == 0) {
-		INFO("RZ/V2N SoM: DDR = 3GB\n");
+		NOTICE("RZ/V2N SoM: DDR = 3GB\n");
 		return DDR_3GB;
 	}
 	if (memcmp(&pn[SKU_DDR_OFFSET], "D02G", 4) == 0) {
-		INFO("RZ/V2N SoM: DDR = 2GB\n");
+		NOTICE("RZ/V2N SoM: DDR = 2GB\n");
 		return DDR_2GB;
 	}
 	if (memcmp(&pn[SKU_DDR_OFFSET], "D01G", 4) == 0) {
-		INFO("RZ/V2N SoM: DDR = 1GB\n");
+		NOTICE("RZ/V2N SoM: DDR = 1GB\n");
 		return DDR_1GB;
 	}
 

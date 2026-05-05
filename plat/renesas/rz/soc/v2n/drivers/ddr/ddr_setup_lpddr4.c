@@ -11,24 +11,25 @@
 
 
 extern const uint32_t param_phyinit_swizzle[][2];
-extern const uint32_t param_phyinit_c[][2];
 extern const uint32_t param_phyinit_i[][2];
 extern const uint16_t param_phyinit_1d_dat0[];
 extern const uint16_t param_phyinit_2d_dat0[];
-extern const uint16_t param_phyinit_1d_dat1[];
-extern const uint16_t param_phyinit_2d_dat1[];
-/* param_setup_mc is selected at runtime by ddr_select_params() */
+
+/* The following are selected at runtime by ddr_select_params(). */
 extern const uint32_t (*param_setup_mc)[2];
+extern const uint32_t (*param_phyinit_c)[2];
+extern const uint16_t *param_phyinit_1d_dat1;
+extern const uint16_t *param_phyinit_2d_dat1;
 
 extern const uint32_t param_phyinit_swizzle_size;
-extern const uint32_t param_phyinit_c_size;
 extern const uint32_t param_phyinit_i_size;
 extern const uint32_t param_phyinit_1d_dat0_size;
 extern const uint32_t param_phyinit_2d_dat0_size;
-extern const uint32_t param_phyinit_1d_dat1_size;
-extern const uint32_t param_phyinit_2d_dat1_size;
 
 extern uint32_t param_setup_mc_size;
+extern uint32_t param_phyinit_c_size;
+extern uint32_t param_phyinit_1d_dat1_size;
+extern uint32_t param_phyinit_2d_dat1_size;
 
 
 static int8_t dwc_ddrphy_cdd_int(uint8_t val);
