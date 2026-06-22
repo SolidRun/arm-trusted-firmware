@@ -13,6 +13,11 @@ FIP_ALIGN		:=	16
 include plat/renesas/rz/common/v2n_common.mk
 include plat/renesas/rz/board/${PLAT}_${BOARD}/rz_board.mk
 
+# DDR calibration probe — disabled by default. Build with RZ_V2N_DDR_PROBE=1
+# to run the in-BL2 DDR sanity test (see plat_ddr_setup.c).
+RZ_V2N_DDR_PROBE		?=	0
+$(eval $(call add_define,RZ_V2N_DDR_PROBE))
+
 DDR_SOURCES	+=				plat/renesas/rz/soc/v2n/drivers/ddr/ddr.c	\
 							plat/renesas/rz/soc/v2n/drivers/ddr/ddr_misc.c	\
 							plat/renesas/rz/soc/v2n/plat_ddr_setup.c

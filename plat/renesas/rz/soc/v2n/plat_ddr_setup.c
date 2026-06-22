@@ -24,6 +24,214 @@
 uint32_t ddr_csr_table[RET_CSR_SIZE] __attribute__ ((aligned(8)));
 
 /*
+ * DDR calibration sanity test. Kept in-tree for bring-up debugging but
+ * disabled by default now that DDR calibration is complete — it adds
+ * tens of seconds to boot and floods the console.
+ *
+ * To re-enable, build BL2 with RZ_V2N_DDR_PROBE=1 on the make command
+ * line (e.g. `make ... RZ_V2N_DDR_PROBE=1`).
+ */
+#ifndef RZ_V2N_DDR_PROBE
+#define RZ_V2N_DDR_PROBE 0
+#endif
+
+#if RZ_V2N_DDR_PROBE
+/*
+ * BL2 DDR sanity test. Four phases, each running across the usable
+ * range (0x48000000..0x140000000):
+ *
+ *   1. 16-MiB dense sweep — quick smoke, write-read at one offset per
+ *      16 MiB. Catches gross addressing failures.
+ *   2. Full-range Stuck-Address — write each cache line (64 B stride)
+ *      with its own physical address, then read back and verify.
+ *      Equivalent to memtester's "Stuck Address" test; flags row/column
+ *      miswires and address-line aliasing.
+ *   3. Full-range pattern stress — write 0xAAAA…/0x5555…/0xFFFF… across
+ *      the full range, three iterations each before verify. Sustained
+ *      back-to-back DDR traffic (~tens of seconds total). Exposes
+ *      refresh / VREF / thermal marginality that single-shot tests miss.
+ *   4. Walking-ones / walking-zeros at one mid-DDR cache line. Tests
+ *      data-line integrity bit-by-bit.
+ *
+ * If the chip and PHY are clean, all four phases pass. A pass here that
+ * still fails Linux-side memtester means the corruption is exposed only
+ * by Linux access patterns (cache eviction, controller QoS) and is a
+ * stronger PHY/QoS-tuning case for Renesas.
+ */
+static void ddr_probe_chip(void)
+{
+	const uintptr_t start = 0x48000000ULL;
+	const uintptr_t end   = 0x140000000ULL;
+
+	/* ---------- Phase 1: 16-MiB dense sweep ---------- */
+	{
+		const uintptr_t step = 0x01000000ULL;
+		uint64_t errors = 0, samples = 0;
+		uintptr_t first_err = 0;
+
+		NOTICE("DDR probe phase 1: 16-MiB sweep 0x%lx..0x%lx\n",
+			(unsigned long)start, (unsigned long)end);
+
+		for (uintptr_t a = start; a < end; a += step) {
+			volatile uint64_t *p = (volatile uint64_t *)a;
+			uint64_t pat = 0xDEADBEEF00000000ULL | (uint64_t)a;
+			uint64_t rb;
+
+			*p = pat;
+			__asm__ volatile ("dsb sy" ::: "memory");
+			rb = *p;
+			__asm__ volatile ("dsb sy" ::: "memory");
+
+			samples++;
+			if (rb != pat) {
+				if (errors == 0)
+					first_err = a;
+				errors++;
+				NOTICE("  MISMATCH @ 0x%lx wrote 0x%llx read 0x%llx\n",
+					(unsigned long)a,
+					(unsigned long long)pat,
+					(unsigned long long)rb);
+			}
+		}
+		NOTICE("DDR probe phase 1: %llu samples, %llu errors%s\n",
+			(unsigned long long)samples,
+			(unsigned long long)errors,
+			errors ? "" : " — clean");
+		if (errors)
+			NOTICE("  first error at 0x%lx\n",
+				(unsigned long)first_err);
+	}
+
+	/* ---------- Phase 2: full-range Stuck-Address @ 64 B stride ---------- */
+	{
+		const uintptr_t step = 64;	/* one entry per cache line */
+		uint64_t errors = 0, scanned = 0;
+		uintptr_t first_err = 0;
+
+		NOTICE("DDR probe phase 2: stuck-address @64B across %llu MiB\n",
+			(unsigned long long)((end - start) >> 20));
+
+		for (uintptr_t a = start; a < end; a += step)
+			*(volatile uint64_t *)a = (uint64_t)a;
+		__asm__ volatile ("dsb sy" ::: "memory");
+
+		for (uintptr_t a = start; a < end; a += step) {
+			uint64_t rb = *(volatile uint64_t *)a;
+
+			scanned++;
+			if (rb != (uint64_t)a) {
+				if (errors == 0)
+					first_err = a;
+				errors++;
+				if (errors <= 4) {
+					NOTICE("  MISMATCH @ 0x%lx expected 0x%lx read 0x%llx\n",
+						(unsigned long)a,
+						(unsigned long)a,
+						(unsigned long long)rb);
+				}
+			}
+		}
+		NOTICE("DDR probe phase 2: %llu scanned, %llu errors%s\n",
+			(unsigned long long)scanned,
+			(unsigned long long)errors,
+			errors ? "" : " — clean");
+		if (errors)
+			NOTICE("  first error at 0x%lx\n",
+				(unsigned long)first_err);
+	}
+
+	/* ---------- Phase 3: full-range sustained pattern stress ---------- */
+	{
+		static const uint64_t patterns[] = {
+			0xAAAAAAAAAAAAAAAAULL,
+			0x5555555555555555ULL,
+			0xFFFFFFFFFFFFFFFFULL,
+		};
+		const int sustain_iters = 3;	/* repeat write phase to keep DDR slammed */
+		uint64_t total_errors = 0;
+
+		NOTICE("DDR probe phase 3: pattern stress full range, "
+			"3 patterns x %d sustained passes\n", sustain_iters);
+
+		for (size_t k = 0; k < sizeof(patterns) / sizeof(patterns[0]); k++) {
+			uint64_t pat = patterns[k];
+			uint64_t serr = 0;
+
+			for (int it = 0; it < sustain_iters; it++) {
+				for (uintptr_t a = start; a < end;
+				     a += sizeof(uint64_t))
+					*(volatile uint64_t *)a = pat;
+			}
+			__asm__ volatile ("dsb sy" ::: "memory");
+
+			for (uintptr_t a = start; a < end;
+			     a += sizeof(uint64_t)) {
+				if (*(volatile uint64_t *)a != pat) {
+					if (serr < 4) {
+						NOTICE("  MISMATCH @ 0x%lx pat=0x%llx\n",
+							(unsigned long)a,
+							(unsigned long long)pat);
+					}
+					serr++;
+				}
+			}
+			NOTICE("  pattern 0x%llx: %llu errors%s\n",
+				(unsigned long long)pat,
+				(unsigned long long)serr,
+				serr ? "" : " — clean");
+			total_errors += serr;
+		}
+		NOTICE("DDR probe phase 3: %llu total errors%s\n",
+			(unsigned long long)total_errors,
+			total_errors ? "" : " — clean");
+	}
+
+	/* ---------- Phase 4: walking ones / zeros ---------- */
+	{
+		const uintptr_t base = 0xC0000000ULL;	/* mid-DDR */
+		volatile uint64_t *p = (volatile uint64_t *)base;
+		uint64_t errors = 0;
+
+		NOTICE("DDR probe phase 4: walking ones/zeros at 0x%lx\n",
+			(unsigned long)base);
+
+		for (int b = 0; b < 64; b++) {
+			uint64_t pat = 1ULL << b;
+			uint64_t rb;
+
+			*p = pat;
+			__asm__ volatile ("dsb sy" ::: "memory");
+			rb = *p;
+			if (rb != pat) {
+				NOTICE("  bit %d: wrote 0x%llx read 0x%llx\n",
+					b, (unsigned long long)pat,
+					(unsigned long long)rb);
+				errors++;
+			}
+
+			pat = ~(1ULL << b);
+			*p = pat;
+			__asm__ volatile ("dsb sy" ::: "memory");
+			rb = *p;
+			if (rb != pat) {
+				NOTICE("  ~bit %d: wrote 0x%llx read 0x%llx\n",
+					b, (unsigned long long)pat,
+					(unsigned long long)rb);
+				errors++;
+			}
+		}
+		NOTICE("DDR probe phase 4: %llu errors%s\n",
+			(unsigned long long)errors,
+			errors ? "" : " — clean");
+	}
+
+	NOTICE("DDR probe: all phases complete\n");
+}
+#else  /* !RZ_V2N_DDR_PROBE */
+static inline void ddr_probe_chip(void) { }
+#endif /* RZ_V2N_DDR_PROBE */
+
+/*
  * Default DDR size hook. Boards that can detect the population at runtime
  * (e.g. v2n_sr_som via TLV EEPROM) override this.
  */
@@ -138,6 +346,7 @@ void plat_ddr_setup(void)
 	if (!sys_is_resume()) {
 		plat_ddr_apply_size();
 		ddr_setup();
+		ddr_probe_chip();
 
 		if (save_ddr_config(V2N_DDR_CONFIG_ID, &ddr_config_info) != 0) {
 			ERROR("Failed to save DDR retention info.\n");
@@ -159,5 +368,6 @@ void plat_ddr_setup(void)
 {
 	plat_ddr_apply_size();
 	ddr_setup();
+	ddr_probe_chip();
 }
 #endif /* PLAT_SYSTEM_SUSPEND */
