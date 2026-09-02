@@ -287,12 +287,14 @@ void riic_flush(uintptr_t i2c_base)
 	RIIC_BASE = i2c_base;
 	iccr1 = mmio_read_8(RIIC_ICCR1);
 
-	/* assert sda */
-	iccr1 &= ~(ICCR1_SOWP | ICCR1_SDAO);
+	/* take manual control of scl and sda, both released */
+	iccr1 &= ~ICCR1_SOWP;
+	iccr1 |= ICCR1_SCLO | ICCR1_SDAO;
 	mmio_write_8(RIIC_ICCR1, iccr1);
+	udelay(10);
 
-	/* send 9 clock cycles at 50kHz */
-	for(uint8_t i = 0; i < 9; i++) {
+	/* send 9 clock cycles at 50kHz to ensure slave releases sda */
+	for (uint8_t i = 0; i < 9; i++) {
 		/* assert clock */
 		iccr1 &= ~(ICCR1_SCLO);
 		mmio_write_8(RIIC_ICCR1, iccr1);
@@ -304,10 +306,28 @@ void riic_flush(uintptr_t i2c_base)
 		udelay(10);
 	}
 
-	/* deassert sda to create stop condition */
+	/* prepare stop condition (assert sda while clock is asserted) */
+	iccr1 &= ~(ICCR1_SCLO);
+	mmio_write_8(RIIC_ICCR1, iccr1);
+	udelay(5);
+	iccr1 &= ~(ICCR1_SDAO);
+	mmio_write_8(RIIC_ICCR1, iccr1);
+	udelay(5);
+
+	/* send stop condition: deassert sda while clock is deasserted */
+	iccr1 |= ICCR1_SCLO;
+	mmio_write_8(RIIC_ICCR1, iccr1);
+	udelay(5);
 	iccr1 |= ICCR1_SDAO;
 	mmio_write_8(RIIC_ICCR1, iccr1);
-	udelay(10);
+	udelay(5);
+
+	/* return automatic control of scl and sda */
+	iccr1 |= ICCR1_SOWP;
+	mmio_write_8(RIIC_ICCR1, iccr1);
+
+	/* discard conditions the toggling above may have flagged */
+	riic_clear_bit(ICSR2_START | ICSR2_STOP | ICSR2_NACKF, RIIC_ICSR2);
 }
 
 static inline int32_t riic_write_one(uint8_t slave, uint8_t addr, uint8_t data)
